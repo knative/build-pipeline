@@ -3631,6 +3631,12 @@ func schema_pkg_apis_pipeline_v1beta1_TaskRunStatus(ref common.ReferenceCallback
 							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
 						},
 					},
+					"runAt": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RunAt is the time the taskrun status turns to running",
+							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
+						},
+					},
 					"steps": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Steps describes the state of each build step container.",
@@ -3747,6 +3753,12 @@ func schema_pkg_apis_pipeline_v1beta1_TaskRunStatusFields(ref common.ReferenceCa
 					"completionTime": {
 						SchemaProps: spec.SchemaProps{
 							Description: "CompletionTime is the time the build completed.",
+							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
+						},
+					},
+					"runAt": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RunAt is the time the taskrun status turns to running",
 							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
 						},
 					},

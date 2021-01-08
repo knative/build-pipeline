@@ -28,7 +28,6 @@ import (
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"knative.dev/pkg/logging"
 	"knative.dev/pkg/metrics"
@@ -56,8 +55,8 @@ var (
 		stats.UnitDimensionless)
 
 	podLatency = stats.Float64("taskruns_pod_latency",
-		"scheduling latency for the taskruns pods",
-		stats.UnitMilliseconds)
+		"running latency for the taskruns pods in seconds",
+		stats.UnitSeconds)
 
 	cloudEvents = stats.Int64("cloudevent_count",
 		"number of cloud events sent including retries",
@@ -292,12 +291,12 @@ func (r *Recorder) RecordPodLatency(pod *corev1.Pod, tr *v1beta1.TaskRun) error 
 		return errors.New("ignoring the metrics recording for pod , failed to initialize the metrics recorder")
 	}
 
-	scheduledTime := getScheduledTime(pod)
-	if scheduledTime.IsZero() {
-		return errors.New("pod has never got scheduled")
+	startRunningTime := tr.Status.RunAt
+	if startRunningTime.IsZero() {
+		return errors.New("taskrun does not have RunAt time")
 	}
 
-	latency := scheduledTime.Sub(pod.CreationTimestamp.Time)
+	latency := startRunningTime.Sub(pod.CreationTimestamp.Time)
 	taskName := "anonymous"
 	if tr.Spec.TaskRef != nil {
 		taskName = tr.Spec.TaskRef.Name
@@ -314,7 +313,7 @@ func (r *Recorder) RecordPodLatency(pod *corev1.Pod, tr *v1beta1.TaskRun) error 
 		return err
 	}
 
-	metrics.Record(ctx, podLatency.M(float64(latency)))
+	metrics.Record(ctx, podLatency.M(float64(latency/time.Second)))
 
 	return nil
 }
@@ -378,14 +377,4 @@ func sentCloudEvents(tr *v1beta1.TaskRun) int64 {
 		}
 	}
 	return sent
-}
-
-func getScheduledTime(pod *corev1.Pod) metav1.Time {
-	for _, c := range pod.Status.Conditions {
-		if c.Type == corev1.PodScheduled {
-			return c.LastTransitionTime
-		}
-	}
-
-	return metav1.Time{}
 }

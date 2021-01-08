@@ -411,10 +411,17 @@ func TaskRunStartTime(startTime time.Time) TaskRunStatusOp {
 	}
 }
 
-// TaskRunCompletionTime sets the start time to the TaskRunStatus.
+// TaskRunCompletionTime sets the completion time to the TaskRunStatus.
 func TaskRunCompletionTime(completionTime time.Time) TaskRunStatusOp {
 	return func(s *v1beta1.TaskRunStatus) {
 		s.CompletionTime = &metav1.Time{Time: completionTime}
+	}
+}
+
+// TaskRunRunAtTime sets the runAt time to the TaskRunStatus.
+func TaskRunRunAtTime(runAt time.Time) TaskRunStatusOp {
+	return func(s *v1beta1.TaskRunStatus) {
+		s.RunAt = &metav1.Time{Time: runAt}
 	}
 }
 

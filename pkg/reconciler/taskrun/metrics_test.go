@@ -270,31 +270,36 @@ func TestRecordRunningTaskRunsCount(t *testing.T) {
 func TestRecordPodLatency(t *testing.T) {
 	creationTime := metav1.Now()
 
-	taskRun := &v1beta1.TaskRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-taskrun", Namespace: "foo"},
-		Spec: v1beta1.TaskRunSpec{
-			TaskRef: &v1beta1.TaskRef{Name: "task-1"},
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test-taskrun-pod-123456",
+			Namespace:         "foo",
+			CreationTimestamp: creationTime,
+		},
+		Status: corev1.PodStatus{
+			Conditions: []corev1.PodCondition{{
+				Type:               corev1.PodScheduled,
+				LastTransitionTime: metav1.Time{Time: creationTime.Add(4 * time.Second)},
+			}},
 		},
 	}
 	for _, td := range []struct {
 		name           string
-		pod            *corev1.Pod
+		taskRun        *v1beta1.TaskRun
 		expectedTags   map[string]string
 		expectedValue  float64
 		expectingError bool
 	}{{
-		name: "for scheduled pod",
-		pod: &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "test-taskrun-pod-123456",
-				Namespace:         "foo",
-				CreationTimestamp: creationTime,
+		name: "for run pod",
+		taskRun: &v1beta1.TaskRun{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-taskrun", Namespace: "foo"},
+			Spec: v1beta1.TaskRunSpec{
+				TaskRef: &v1beta1.TaskRef{Name: "task-1"},
 			},
-			Status: corev1.PodStatus{
-				Conditions: []corev1.PodCondition{{
-					Type:               corev1.PodScheduled,
-					LastTransitionTime: metav1.Time{Time: creationTime.Add(4 * time.Second)},
-				}},
+			Status: v1beta1.TaskRunStatus{
+				TaskRunStatusFields: v1beta1.TaskRunStatusFields{
+					RunAt: &metav1.Time{Time: creationTime.Add(4 * time.Second)},
+				},
 			},
 		},
 		expectedTags: map[string]string{
@@ -303,16 +308,15 @@ func TestRecordPodLatency(t *testing.T) {
 			"taskrun":   "test-taskrun",
 			"namespace": "foo",
 		},
-		expectedValue: 4e+09,
+		expectedValue: 4,
 	}, {
-		name: "for non scheduled pod",
-		pod: &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "test-taskrun-pod-123456",
-				Namespace:         "foo",
-				CreationTimestamp: creationTime,
+		name: "for non run pod",
+		taskRun: &v1beta1.TaskRun{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-taskrun", Namespace: "foo"},
+			Spec: v1beta1.TaskRunSpec{
+				TaskRef: &v1beta1.TaskRef{Name: "task-1"},
 			},
-			Status: corev1.PodStatus{},
+			Status: v1beta1.TaskRunStatus{},
 		},
 		expectingError: true,
 	}} {
@@ -324,7 +328,7 @@ func TestRecordPodLatency(t *testing.T) {
 				t.Fatalf("NewRecorder: %v", err)
 			}
 
-			if err := metrics.RecordPodLatency(td.pod, taskRun); td.expectingError && err == nil {
+			if err := metrics.RecordPodLatency(pod, td.taskRun); td.expectingError && err == nil {
 				t.Error("RecordPodLatency wanted error, got nil")
 			} else if !td.expectingError {
 				if err != nil {

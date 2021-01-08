@@ -1681,6 +1681,10 @@ func (in *TaskRunStatusFields) DeepCopyInto(out *TaskRunStatusFields) {
 		in, out := &in.CompletionTime, &out.CompletionTime
 		*out = (*in).DeepCopy()
 	}
+	if in.RunAt != nil {
+		in, out := &in.RunAt, &out.RunAt
+		*out = (*in).DeepCopy()
+	}
 	if in.Steps != nil {
 		in, out := &in.Steps, &out.Steps
 		*out = make([]StepState, len(*in))

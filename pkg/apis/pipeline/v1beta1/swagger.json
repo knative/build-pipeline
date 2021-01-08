@@ -2097,6 +2097,10 @@
             "$ref": "#/definitions/v1beta1.TaskRunStatus"
           }
         },
+        "runAt": {
+          "description": "RunAt is the time the taskrun status turns to running",
+          "$ref": "#/definitions/v1.Time"
+        },
         "sidecars": {
           "description": "The list has one entry per sidecar in the manifest. Each entry is represents the imageid of the corresponding sidecar.",
           "type": "array",
@@ -2163,6 +2167,10 @@
           "items": {
             "$ref": "#/definitions/v1beta1.TaskRunStatus"
           }
+        },
+        "runAt": {
+          "description": "RunAt is the time the taskrun status turns to running",
+          "$ref": "#/definitions/v1.Time"
         },
         "sidecars": {
           "description": "The list has one entry per sidecar in the manifest. Each entry is represents the imageid of the corresponding sidecar.",

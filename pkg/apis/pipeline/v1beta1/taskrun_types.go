@@ -189,6 +189,10 @@ type TaskRunStatusFields struct {
 	// +optional
 	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 
+	// RunAt is the time the taskrun status turns to running
+	// +optional
+	RunAt *metav1.Time `json:"runAt,omitempty"`
+
 	// Steps describes the state of each build step container.
 	// +optional
 	Steps []StepState `json:"steps,omitempty"`

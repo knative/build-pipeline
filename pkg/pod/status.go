@@ -99,6 +99,9 @@ func SidecarsReady(podStatus corev1.PodStatus) bool {
 // MakeTaskRunStatus returns a TaskRunStatus based on the Pod's status.
 func MakeTaskRunStatus(logger *zap.SugaredLogger, tr v1beta1.TaskRun, pod *corev1.Pod) (v1beta1.TaskRunStatus, error) {
 	trs := &tr.Status
+	if pod.Status.Phase == corev1.PodRunning && tr.Status.RunAt.IsZero() {
+		tr.Status.RunAt = &metav1.Time{Time: time.Now()}
+	}
 	if trs.GetCondition(apis.ConditionSucceeded) == nil || trs.GetCondition(apis.ConditionSucceeded).Status == corev1.ConditionUnknown {
 		// If the taskRunStatus doesn't exist yet, it's because we just started running
 		MarkStatusRunning(trs, v1beta1.TaskRunReasonRunning.String(), "Not all Steps in the Task have finished executing")

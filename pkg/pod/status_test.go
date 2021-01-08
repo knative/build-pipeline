@@ -169,6 +169,8 @@ func TestMakeTaskRunStatus(t *testing.T) {
 					ContainerName: "step-running-step",
 				}},
 				Sidecars: []v1beta1.SidecarState{},
+				// We don't actually care about the time, just that it's not nil
+				RunAt: &metav1.Time{Time: time.Now()},
 			},
 		},
 	}, {
@@ -409,6 +411,8 @@ func TestMakeTaskRunStatus(t *testing.T) {
 					ImageID:       "image-id",
 					ContainerName: "sidecar-running",
 				}},
+				// We don't actually care about the time, just that it's not nil
+				RunAt: &metav1.Time{Time: time.Now()},
 			},
 		},
 	}, {
@@ -459,6 +463,8 @@ func TestMakeTaskRunStatus(t *testing.T) {
 					ImageID:       "image-id",
 					ContainerName: "sidecar-waiting",
 				}},
+				// We don't actually care about the time, just that it's not nil
+				RunAt: &metav1.Time{Time: time.Now()},
 			},
 		},
 	}, {
@@ -505,6 +511,8 @@ func TestMakeTaskRunStatus(t *testing.T) {
 					ImageID:       "image-id",
 					ContainerName: "sidecar-error",
 				}},
+				// We don't actually care about the time, just that it's not nil
+				RunAt: &metav1.Time{Time: time.Now()},
 			},
 		},
 	}, {
