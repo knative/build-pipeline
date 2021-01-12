@@ -162,6 +162,16 @@ type TaskRef struct {
 	// Bundle url reference to a Tekton Bundle.
 	// +optional
 	Bundle string `json:"bundle,omitempty"`
+	// Metadata to be copied to TaskRun
+	// +optional
+	Metadata TaskRefMetadata `json:"metadata,omitempty"`
+}
+
+type TaskRefMetadata struct {
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // Check that Pipeline may be validated and defaulted.

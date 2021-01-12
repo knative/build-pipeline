@@ -165,6 +165,10 @@ func (pt *PipelineTask) TaskSpecMetadata() PipelineTaskMetadata {
 	return pt.TaskSpec.Metadata
 }
 
+func (pt *PipelineTask) TaskRefMetadata() TaskRefMetadata {
+	return pt.TaskRef.Metadata
+}
+
 func (pt PipelineTask) HashKey() string {
 	return pt.Name
 }

@@ -831,6 +831,8 @@ func combineTaskRunAndTaskSpecLabels(pr *v1beta1.PipelineRun, pipelineTask *v1be
 
 	if pipelineTask.TaskSpec != nil {
 		tsLabels = pipelineTask.TaskSpecMetadata().Labels
+	} else if pipelineTask.TaskRef != nil {
+		tsLabels = pipelineTask.TaskRefMetadata().Labels
 	}
 
 	labels := make(map[string]string, len(trLabels)+len(tsLabels))
@@ -853,6 +855,8 @@ func combineTaskRunAndTaskSpecAnnotations(pr *v1beta1.PipelineRun, pipelineTask 
 
 	if pipelineTask.TaskSpec != nil {
 		tsAnnotations = pipelineTask.TaskSpecMetadata().Annotations
+	} else if pipelineTask.TaskRef != nil {
+		tsAnnotations = pipelineTask.TaskRefMetadata().Annotations
 	}
 
 	annotations := make(map[string]string, len(trAnnotations)+len(tsAnnotations))

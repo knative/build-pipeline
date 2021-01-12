@@ -232,6 +232,16 @@ func TaskSpecMetadata(metadata v1beta1.PipelineTaskMetadata) PipelineTaskOp {
 	}
 }
 
+// TaskRefMetadata sets the Metadata on a TaskRef within PipelineTask.
+func TaskRefMetadata(metadata v1beta1.TaskRefMetadata) PipelineTaskOp {
+	return func(pt *v1beta1.PipelineTask) {
+		if pt.TaskRef == nil {
+			pt.TaskRef = &v1beta1.TaskRef{}
+		}
+		pt.TaskRef.Metadata = metadata
+	}
+}
+
 // Retries sets the number of retries on a PipelineTask.
 func Retries(retries int) PipelineTaskOp {
 	return func(pt *v1beta1.PipelineTask) {
