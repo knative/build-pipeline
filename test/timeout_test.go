@@ -35,7 +35,7 @@ import (
 )
 
 // TestPipelineRunTimeout is an integration test that will
-// verify that pipelinerun timeout works and leads to the the correct TaskRun statuses
+// verify that pipelinerun timeout works and leads to the correct TaskRun statuses
 // and pod deletions.
 func TestPipelineRunTimeout(t *testing.T) {
 	t.Parallel()

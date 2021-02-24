@@ -21,7 +21,7 @@ import (
 	_ "knative.dev/pkg/client/injection/kube/informers/factory/filtered/fake"
 )
 
-// SetupFakeContext sets up the the Context and the fake filtered informers for the tests.
+// SetupFakeContext sets up the Context and the fake filtered informers for the tests.
 func SetupFakeContext(t *testing.T) (context.Context, []controller.Informer) {
 	ctx, _, informer := SetupFakeContextWithLabelKey(t)
 	cloudEventClientBehaviour := cloudevent.FakeClientBehaviour{
@@ -31,18 +31,18 @@ func SetupFakeContext(t *testing.T) (context.Context, []controller.Informer) {
 	return WithLogger(ctx, t), informer
 }
 
-// WithLogger returns the the Logger
+// WithLogger returns the Logger.
 func WithLogger(ctx context.Context, t *testing.T) context.Context {
 	return logging.WithLogger(ctx, TestLogger(t))
 }
 
-// TestLogger sets up the the Logger
+// TestLogger sets up the Logger.
 func TestLogger(t *testing.T) *zap.SugaredLogger {
 	logger := zaptest.NewLogger(t, zaptest.WrapOptions(zap.AddCaller()))
 	return logger.Sugar().Named(t.Name())
 }
 
-// SetupFakeContextWithLabelKey sets up the the Context and the fake informers for the tests
+// SetupFakeContextWithLabelKey sets up the Context and the fake informers for the tests
 // The provided context includes the FilteredInformerFactory LabelKey.
 func SetupFakeContextWithLabelKey(t zaptest.TestingT) (context.Context, context.CancelFunc, []controller.Informer) {
 	ctx, c := context.WithCancel(logtesting.TestContextWithLogger(t))
