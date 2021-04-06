@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package git
 
 import (
@@ -63,6 +64,7 @@ type FetchSpec struct {
 	Revision                  string
 	Refspec                   string
 	Path                      string
+	Dir                       string
 	Depth                     uint
 	Submodules                bool
 	SSLVerify                 bool
@@ -79,21 +81,23 @@ func Fetch(logger *zap.SugaredLogger, spec FetchSpec) error {
 	}
 	validateGitAuth(logger, pipeline.CredsDir, spec.URL)
 
+	dir := spec.Dir
 	if spec.Path != "" {
-		if _, err := run(logger, "", "init", spec.Path); err != nil {
+		dir = spec.Path
+		if _, err := run(logger, dir, "init", dir); err != nil {
 			return err
 		}
-		if err := os.Chdir(spec.Path); err != nil {
-			return fmt.Errorf("failed to change directory with path %s; err: %w", spec.Path, err)
+		if err := os.Chdir(dir); err != nil {
+			return fmt.Errorf("failed to change directory with path %s; err: %w", dir, err)
 		}
-	} else if _, err := run(logger, "", "init"); err != nil {
+	} else if _, err := run(logger, dir, "init"); err != nil {
 		return err
 	}
 	if err := configSparseCheckout(logger, spec); err != nil {
 		return err
 	}
 	trimmedURL := strings.TrimSpace(spec.URL)
-	if _, err := run(logger, "", "remote", "add", "origin", trimmedURL); err != nil {
+	if _, err := run(logger, dir, "remote", "add", "origin", trimmedURL); err != nil {
 		return err
 	}
 
@@ -102,19 +106,19 @@ func Fetch(logger *zap.SugaredLogger, spec FetchSpec) error {
 		return fmt.Errorf("error checking for known_hosts file: %w", err)
 	}
 	if !hasKnownHosts {
-		if _, err := run(logger, "", "config", "core.sshCommand", sshMissingKnownHostsSSHCommand); err != nil {
+		if _, err := run(logger, dir, "config", "core.sshCommand", sshMissingKnownHostsSSHCommand); err != nil {
 			err = fmt.Errorf("error disabling strict host key checking: %w", err)
 			logger.Warnf(err.Error())
 			return err
 		}
 	}
-	if _, err := run(logger, "", "config", "http.sslVerify", strconv.FormatBool(spec.SSLVerify)); err != nil {
+	if _, err := run(logger, dir, "config", "http.sslVerify", strconv.FormatBool(spec.SSLVerify)); err != nil {
 		logger.Warnf("Failed to set http.sslVerify in git config: %s", err)
 		return err
 	}
 	if spec.Revision == "" {
 		spec.Revision = "HEAD"
-		if _, err := run(logger, "", "symbolic-ref", spec.Revision, "refs/remotes/origin/HEAD"); err != nil {
+		if _, err := run(logger, dir, "symbolic-ref", spec.Revision, "refs/remotes/origin/HEAD"); err != nil {
 			return err
 		}
 	}
@@ -146,27 +150,27 @@ func Fetch(logger *zap.SugaredLogger, spec FetchSpec) error {
 	// when the refspec specifies the same destination twice)
 	fetchArgs = append(fetchArgs, "origin", "--update-head-ok", "--force")
 	fetchArgs = append(fetchArgs, fetchParam...)
-	if _, err := run(logger, spec.Path, fetchArgs...); err != nil {
+	if _, err := run(logger, dir, fetchArgs...); err != nil {
 		return fmt.Errorf("failed to fetch %v: %v", fetchParam, err)
 	}
 	// After performing a fetch, verify that the item to checkout is actually valid
-	if _, err := ShowCommit(logger, checkoutParam, spec.Path); err != nil {
+	if _, err := ShowCommit(logger, checkoutParam, dir); err != nil {
 		return fmt.Errorf("error parsing %s after fetching refspec %s", checkoutParam, spec.Refspec)
 	}
 
-	if _, err := run(logger, "", "checkout", "-f", checkoutParam); err != nil {
-		return err
+	if _, err := run(logger, dir, "checkout", "-f", checkoutParam); err != nil {
+		return fmt.Errorf("failed to checkout %s: %v", checkoutParam, err)
 	}
 
-	commit, err := ShowCommit(logger, "HEAD", spec.Path)
+	commit, err := ShowCommit(logger, "HEAD", dir)
 	if err != nil {
 		return err
 	}
-	ref, err := showRef(logger, "HEAD", spec.Path)
+	ref, err := showRef(logger, "HEAD", dir)
 	if err != nil {
 		return err
 	}
-	logger.Infof("Successfully cloned %s @ %s (%s) in path %s", trimmedURL, commit, ref, spec.Path)
+	logger.Infof("Successfully cloned %s @ %s (%s) in path %s", trimmedURL, commit, ref, dir)
 	if spec.Submodules {
 		if err := submoduleFetch(logger, spec); err != nil {
 			return err
@@ -201,10 +205,10 @@ func submoduleFetch(logger *zap.SugaredLogger, spec FetchSpec) error {
 	if spec.Depth > 0 {
 		updateArgs = append(updateArgs, fmt.Sprintf("--depth=%d", spec.Depth))
 	}
-	if _, err := run(logger, "", updateArgs...); err != nil {
+	if _, err := run(logger, spec.Dir, updateArgs...); err != nil {
 		return err
 	}
-	logger.Infof("Successfully initialized and updated submodules in path %s", spec.Path)
+	logger.Infof("Successfully initialized and updated submodules in path %s", spec.Dir)
 	return nil
 }
 
@@ -288,7 +292,7 @@ func validateGitSSHURLFormat(url string) bool {
 
 func configSparseCheckout(logger *zap.SugaredLogger, spec FetchSpec) error {
 	if spec.SparseCheckoutDirectories != "" {
-		if _, err := run(logger, "", "config", "core.sparsecheckout", "true"); err != nil {
+		if _, err := run(logger, spec.Dir, "config", "core.sparsecheckout", "true"); err != nil {
 			return err
 		}
 

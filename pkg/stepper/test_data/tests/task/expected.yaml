@@ -1,0 +1,126 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  creationTimestamp: null
+  generateName: my-pipeline-
+spec:
+  params:
+  - description: Name (reference) of the image to build.
+    name: IMAGE
+    type: string
+  - default: ./Dockerfile
+    description: Path to the Dockerfile to build.
+    name: DOCKERFILE
+    type: string
+  - default: ./
+    description: The build context used by Kaniko.
+    name: CONTEXT
+    type: string
+  - default: ""
+    name: EXTRA_ARGS
+    type: string
+  - default: gcr.io/kaniko-project/executor@sha256:e36c9fa99279217c4bb8ee172819b441c3ca8ef946dc0e28b21721eefb2ba70a
+    description: The image on which builds will run
+    name: BUILDER_IMAGE
+    type: string
+  results:
+  - description: Digest of the image just built.
+    name: IMAGE-DIGEST
+  stepTemplate:
+    env:
+    - name: IMAGE
+      value: $(params.IMAGE)
+    - name: DOCKERFILE
+      value: $(params.DOCKERFILE)
+    - name: CONTEXT
+      value: $(params.CONTEXT)
+    - name: EXTRA_ARGS
+      value: $(params.EXTRA_ARGS)
+    - name: BUILDER_IMAGE
+      value: $(params.BUILDER_IMAGE)
+    name: ""
+    resources: {}
+  steps:
+  - command:
+    - /kaniko/executor
+    - $(params.EXTRA_ARGS)
+    - --dockerfile=$(params.DOCKERFILE)
+    - --context=$(workspaces.source.path)/$(params.CONTEXT)
+    - --destination=$(params.IMAGE)
+    - --oci-layout-path=$(workspaces.source.path)/$(params.CONTEXT)/image-digest
+    env:
+    - name: DOCKER_CONFIG
+      value: /tekton/home/.docker
+    - name: IMAGE
+      value: $(params.IMAGE)
+    - name: DOCKERFILE
+      value: $(params.DOCKERFILE)
+    - name: CONTEXT
+      value: $(params.CONTEXT)
+    - name: EXTRA_ARGS
+      value: $(params.EXTRA_ARGS)
+    - name: BUILDER_IMAGE
+      value: $(params.BUILDER_IMAGE)
+    image: $(params.BUILDER_IMAGE)
+    name: build-and-push
+    resources: {}
+    securityContext:
+      runAsUser: 0
+    workingDir: $(workspaces.source.path)
+  - args:
+    - -images=[{"name":"$(params.IMAGE)","type":"image","url":"$(params.IMAGE)","digest":"","OutputImageDir":"$(workspaces.source.path)/$(params.CONTEXT)/image-digest"}]
+    - -terminationMessagePath=$(params.CONTEXT)/image-digested
+    command:
+    - /ko-app/imagedigestexporter
+    env:
+    - name: IMAGE
+      value: $(params.IMAGE)
+    - name: DOCKERFILE
+      value: $(params.DOCKERFILE)
+    - name: CONTEXT
+      value: $(params.CONTEXT)
+    - name: EXTRA_ARGS
+      value: $(params.EXTRA_ARGS)
+    - name: BUILDER_IMAGE
+      value: $(params.BUILDER_IMAGE)
+    image: gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/imagedigestexporter:v0.16.2
+    name: write-digest
+    resources: {}
+    securityContext:
+      runAsUser: 0
+    workingDir: $(workspaces.source.path)
+  - env:
+    - name: IMAGE
+      value: $(params.IMAGE)
+    - name: DOCKERFILE
+      value: $(params.DOCKERFILE)
+    - name: CONTEXT
+      value: $(params.CONTEXT)
+    - name: EXTRA_ARGS
+      value: $(params.EXTRA_ARGS)
+    - name: BUILDER_IMAGE
+      value: $(params.BUILDER_IMAGE)
+    image: docker.io/stedolan/jq@sha256:a61ed0bca213081b64be94c5e1b402ea58bc549f457c2682a86704dd55231e09
+    name: digest-to-results
+    resources: {}
+    script: cat $(params.CONTEXT)/image-digested | jq '.[0].value' -rj | tee /tekton/results/IMAGE-DIGEST
+    workingDir: $(workspaces.source.path)
+  - env:
+    - name: IMAGE
+      value: $(params.IMAGE)
+    - name: DOCKERFILE
+      value: $(params.DOCKERFILE)
+    - name: CONTEXT
+      value: $(params.CONTEXT)
+    - name: EXTRA_ARGS
+      value: $(params.EXTRA_ARGS)
+    - name: BUILDER_IMAGE
+      value: $(params.BUILDER_IMAGE)
+    image: golang:1.15
+    name: my-custom-step
+    resources: {}
+    script: |
+      #!/bin/sh
+      echo "hello world"
+  workspaces:
+  - name: source

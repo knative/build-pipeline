@@ -1,0 +1,14 @@
+apiVersion: tekton.dev/v1beta1
+kind: TaskRun
+metadata:
+  generatestep: my-release-
+spec:
+  serviceAccountName: 'default'
+  taskSpec:
+    steps:
+    - uses:
+        git: tektoncd/catalog/task/git-clone/0.2/git-clone.yaml@HEAD
+    - uses:
+        git: tektoncd/catalog/task/maven/0.2/maven.yaml@HEAD
+    - uses:
+        git: tektoncd/catalog/task/kaniko/0.1/kaniko.yaml@HEAD

@@ -18,6 +18,7 @@ package resources_test
 
 import (
 	"context"
+	"github.com/tektoncd/pipeline/pkg/remote/git"
 	"net/http/httptest"
 	"net/url"
 	"testing"
@@ -220,13 +221,14 @@ func TestGetTaskFunc(t *testing.T) {
 					Name:      "default",
 				},
 			})
+			gitFactory := &git.Factory{}
 
 			_, err := test.CreateImage(u.Host+"/"+tc.name, tc.remoteTasks...)
 			if err != nil {
 				t.Fatalf("failed to upload test image: %s", err.Error())
 			}
 
-			fn, kind, err := resources.GetTaskFunc(ctx, kubeclient, tektonclient, tc.ref, "default", "default")
+			fn, kind, err := resources.GetTaskFunc(ctx, kubeclient, tektonclient, gitFactory, tc.ref, "default", "default")
 			if err != nil {
 				t.Fatalf("failed to get task fn: %s", err.Error())
 			}

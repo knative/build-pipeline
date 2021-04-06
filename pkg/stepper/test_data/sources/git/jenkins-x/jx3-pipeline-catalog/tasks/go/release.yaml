@@ -1,0 +1,84 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  creationTimestamp: null
+  name: release
+spec:
+  pipelineSpec:
+    tasks:
+    - name: from-build-pack
+      resources: {}
+      taskSpec:
+        metadata: {}
+        stepTemplate:
+          name: ""
+          resources:
+            requests:
+              cpu: 400m
+              memory: 600Mi
+          workingDir: /workspace/source
+        steps:
+        - image: gcr.io/jenkinsxio/jx-release-version:2.2.3
+          name: next-version
+          resources: {}
+          script: |
+            #!/usr/bin/env sh
+            jx-release-version > VERSION
+        - image: ghcr.io/jenkins-x/jx-boot:3.1.285
+          name: jx-variables
+          resources: {}
+          script: |
+            #!/usr/bin/env sh
+            jx gitops variables
+        - image: golang:1.15
+          name: build-make-build
+          resources: {}
+          script: |
+            #!/bin/sh
+            make build
+        - image: gcr.io/jenkinsxio/jx-registry:0.0.11
+          name: check-registry
+        - image: gcr.io/kaniko-project/executor:debug-v1.3.0
+          name: build-container-build
+          resources: {}
+          script: |
+            #!/busybox/sh
+            source .jx/variables.sh
+            cp /tekton/creds-secrets/tekton-container-registry-auth/.dockerconfigjson /kaniko/.docker/config.json
+            /kaniko/executor $KANIKO_FLAGS --context=/workspace/source --dockerfile=Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION
+        - image: gcr.io/jenkinsxio/jx-changelog:0.0.34
+          name: promote-changelog
+          resources: {}
+          script: |
+            #!/usr/bin/env sh
+            source .jx/variables.sh
+
+            if [ -d "charts/$REPO_NAME" ]; then
+            sed -i -e "s/^version:.*/version: $VERSION/" ./charts/$REPO_NAME/Chart.yaml
+            sed -i -e "s/repository:.*/repository: $DOCKER_REGISTRY\/$DOCKER_REGISTRY_ORG\/$APP_NAME/" ./charts/$REPO_NAME/values.yaml
+            sed -i -e "s/tag:.*/tag: $VERSION/" ./charts/$REPO_NAME/values.yaml;
+            else echo no charts; fi
+
+            git add * || true
+            git commit -a -m "chore: release $VERSION" --allow-empty
+            git tag -fa v$VERSION -m "Release version $VERSION"
+            git push --force origin v$VERSION
+
+            jx changelog create --version v${VERSION}
+        - image: ghcr.io/jenkins-x/jx-boot:3.1.285
+          name: promote-helm-release
+          resources: {}
+          script: |
+            #!/usr/bin/env sh
+            jx gitops helm release
+        - image: ghcr.io/jenkins-x/jx-promote:0.0.240
+          name: promote-jx-promote
+          resources: {}
+          script: |
+            #!/usr/bin/env sh
+            source .jx/variables.sh
+            jx promote -b --all --timeout 1h --no-poll
+  podTemplate: {}
+  serviceAccountName: tekton-bot
+  timeout: 240h0m0s
+status: {}

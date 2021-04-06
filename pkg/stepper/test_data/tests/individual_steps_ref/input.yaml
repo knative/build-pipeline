@@ -1,0 +1,17 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  generateName: my-pipeline-
+spec:
+  serviceAccountName: 'default'
+  pipelineSpec:
+    tasks:
+    - name: mytask
+      taskSpec:
+        steps:
+        - uses:
+            name: git-clone
+        - uses:
+            git: jenkins-x/jx3-pipeline-catalog/tasks/go/release.yaml@HEAD
+            step: next-version
+

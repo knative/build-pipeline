@@ -1,0 +1,203 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  creationTimestamp: null
+  generateName: my-pipeline-
+spec:
+  pipelineSpec:
+    params:
+    - description: git url to clone
+      name: url
+      type: string
+    - default: ""
+      description: git revision to checkout (branch, tag, sha, ref…)
+      name: revision
+      type: string
+    - default: ""
+      description: (optional) git refspec to fetch before checking out revision
+      name: refspec
+      type: string
+    - default: "true"
+      description: defines if the resource should initialize and fetch the submodules
+      name: submodules
+      type: string
+    - default: "1"
+      description: performs a shallow clone where only the most recent commit(s) will
+        be fetched
+      name: depth
+      type: string
+    - default: "true"
+      description: defines if http.sslVerify should be set to true or false in the
+        global git config
+      name: sslVerify
+      type: string
+    - default: ""
+      description: subdirectory inside the "output" workspace to clone the git repo
+        into
+      name: subdirectory
+      type: string
+    - default: "true"
+      description: clean out the contents of the repo's destination directory (if
+        it already exists) before trying to clone the repo there
+      name: deleteExisting
+      type: string
+    - default: ""
+      description: git HTTP proxy server for non-SSL requests
+      name: httpProxy
+      type: string
+    - default: ""
+      description: git HTTPS proxy server for SSL requests
+      name: httpsProxy
+      type: string
+    - default: ""
+      description: git no proxy - opt out of proxying HTTP/HTTPS requests
+      name: noProxy
+      type: string
+    - default: "true"
+      description: log the commands used during execution
+      name: verbose
+      type: string
+    - default: gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.18.1
+      description: the image used where the git-init binary is
+      name: gitInitImage
+      type: string
+    results:
+    - description: The precise commit SHA that was fetched by this Task
+      name: commit
+      value: ""
+    - description: The precise URL that was fetched by this Task
+      name: url
+      value: ""
+    tasks:
+    - name: mytask
+      taskSpec:
+        metadata: {}
+        params:
+        - description: git url to clone
+          name: url
+          type: string
+        - default: ""
+          description: git revision to checkout (branch, tag, sha, ref…)
+          name: revision
+          type: string
+        - default: ""
+          description: (optional) git refspec to fetch before checking out revision
+          name: refspec
+          type: string
+        - default: "true"
+          description: defines if the resource should initialize and fetch the submodules
+          name: submodules
+          type: string
+        - default: "1"
+          description: performs a shallow clone where only the most recent commit(s)
+            will be fetched
+          name: depth
+          type: string
+        - default: "true"
+          description: defines if http.sslVerify should be set to true or false in
+            the global git config
+          name: sslVerify
+          type: string
+        - default: ""
+          description: subdirectory inside the "output" workspace to clone the git
+            repo into
+          name: subdirectory
+          type: string
+        - default: "true"
+          description: clean out the contents of the repo's destination directory
+            (if it already exists) before trying to clone the repo there
+          name: deleteExisting
+          type: string
+        - default: ""
+          description: git HTTP proxy server for non-SSL requests
+          name: httpProxy
+          type: string
+        - default: ""
+          description: git HTTPS proxy server for SSL requests
+          name: httpsProxy
+          type: string
+        - default: ""
+          description: git no proxy - opt out of proxying HTTP/HTTPS requests
+          name: noProxy
+          type: string
+        - default: "true"
+          description: log the commands used during execution
+          name: verbose
+          type: string
+        - default: gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.18.1
+          description: the image used where the git-init binary is
+          name: gitInitImage
+          type: string
+        results:
+        - description: The precise commit SHA that was fetched by this Task
+          name: commit
+        - description: The precise URL that was fetched by this Task
+          name: url
+        steps:
+        - image: $(params.gitInitImage)
+          name: clone
+          resources: {}
+          script: |-
+            #!/bin/sh
+            set -eu -o pipefail
+
+            if [[ "$(params.verbose)" == "true" ]] ; then
+              set -x
+            fi
+
+            CHECKOUT_DIR="$(workspaces.output.path)/$(params.subdirectory)"
+
+            cleandir() {
+              # Delete any existing contents of the repo directory if it exists.
+              #
+              # We don't just "rm -rf $CHECKOUT_DIR" because $CHECKOUT_DIR might be "/"
+              # or the root of a mounted volume.
+              if [[ -d "$CHECKOUT_DIR" ]] ; then
+                # Delete non-hidden files and directories
+                rm -rf "$CHECKOUT_DIR"/*
+                # Delete files and directories starting with . but excluding ..
+                rm -rf "$CHECKOUT_DIR"/.[!.]*
+                # Delete files and directories starting with .. plus any other character
+                rm -rf "$CHECKOUT_DIR"/..?*
+              fi
+            }
+
+            if [[ "$(params.deleteExisting)" == "true" ]] ; then
+              cleandir
+            fi
+
+            test -z "$(params.httpProxy)" || export HTTP_PROXY=$(params.httpProxy)
+            test -z "$(params.httpsProxy)" || export HTTPS_PROXY=$(params.httpsProxy)
+            test -z "$(params.noProxy)" || export NO_PROXY=$(params.noProxy)
+
+            /ko-app/git-init \
+              -url "$(params.url)" \
+              -revision "$(params.revision)" \
+              -refspec "$(params.refspec)" \
+              -path "$CHECKOUT_DIR" \
+              -sslVerify="$(params.sslVerify)" \
+              -submodules="$(params.submodules)" \
+              -depth "$(params.depth)"
+            cd "$CHECKOUT_DIR"
+            RESULT_SHA="$(git rev-parse HEAD)"
+            EXIT_CODE="$?"
+            if [ "$EXIT_CODE" != 0 ] ; then
+              exit $EXIT_CODE
+            fi
+            # ensure we don't add a trailing newline to the result
+            echo -n "$RESULT_SHA" > $(results.commit.path)
+            echo -n "$(params.url)" > $(results.url.path)
+        - image: gcr.io/jenkinsxio/jx-release-version:2.2.3
+          name: next-version
+          resources: {}
+          script: |
+            #!/usr/bin/env sh
+            jx-release-version > VERSION
+        workspaces:
+        - description: The git repo will be cloned onto the volume backing this workspace
+          name: output
+    workspaces:
+    - description: The git repo will be cloned onto the volume backing this workspace
+      name: output
+  serviceAccountName: default
+status: {}

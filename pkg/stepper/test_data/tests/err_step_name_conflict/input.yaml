@@ -1,0 +1,16 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  generateName: my-pipeline-
+spec:
+  steps:
+  - uses:
+      git: tektoncd/catalog/task/kaniko/0.1/kaniko.yaml
+  - name: write-digest
+    image: golang:1.15
+    command:
+      - sh
+      - -c
+      - "echo hello world"
+
+

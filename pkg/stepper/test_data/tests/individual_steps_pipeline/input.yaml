@@ -1,0 +1,41 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  generateName: my-pipeline-
+spec:
+  tasks:
+  - name: mytask
+    taskSpec:
+      steps:
+      - uses:
+          git: tektoncd/catalog/task/git-clone/0.2/git-clone.yaml@HEAD
+      - uses:
+          git: jenkins-x/jx3-pipeline-catalog/tasks/go/release.yaml@HEAD
+          step: next-version
+      - uses:
+          git: jenkins-x/jx3-pipeline-catalog/tasks/go/release.yaml@HEAD
+          step: jx-variables
+      - uses:
+          git: jenkins-x/jx3-pipeline-catalog/tasks/go/release.yaml@HEAD
+          step: build-make-build
+      - name: my-custom-step
+        image: golang:1.15
+        command:
+          - sh
+          - -c
+          - "echo hello world"
+      - uses:
+          git: jenkins-x/jx3-pipeline-catalog/tasks/go/release.yaml@HEAD
+          step: check-registry
+      - uses:
+          git: jenkins-x/jx3-pipeline-catalog/tasks/go/release.yaml@HEAD
+          step: build-container-build
+      - uses:
+          git: jenkins-x/jx3-pipeline-catalog/tasks/go/release.yaml@HEAD
+          step: promote-changelog
+      - uses:
+          git: jenkins-x/jx3-pipeline-catalog/tasks/go/release.yaml@HEAD
+          step: promote-helm-release
+      - uses:
+          git: jenkins-x/jx3-pipeline-catalog/tasks/go/release.yaml@HEAD
+          step: promote-jx-promote

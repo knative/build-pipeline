@@ -1,0 +1,15 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  generateName: my-pipeline-
+spec:
+  steps:
+  - uses:
+      git: tektoncd/catalog/task/kaniko/0.1/kaniko.yaml
+      step: build-and-push
+  - uses:
+      git: tektoncd/catalog/task/kaniko/0.1/kaniko.yaml
+      step: write-digest
+  - uses:
+      git: tektoncd/catalog/task/kaniko/0.1/kaniko.yaml
+      step: digest-to-results
