@@ -19,6 +19,8 @@ package validate
 import (
 	"strings"
 
+	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/apis"
 )
@@ -39,6 +41,16 @@ func ObjectMetadata(meta metav1.Object) *apis.FieldError {
 		return &apis.FieldError{
 			Message: "Invalid resource name: length must be no more than 63 characters",
 			Paths:   []string{"name"},
+		}
+	}
+
+	// metadata must not contain any label with tekton.dev/*
+	for k := range meta.GetLabels() {
+		if strings.HasPrefix(k, pipeline.GroupName) {
+			return &apis.FieldError{
+				Message: "Invalid label key: can not change tekton resource name",
+				Paths:   []string{"labels"},
+			}
 		}
 	}
 	return nil

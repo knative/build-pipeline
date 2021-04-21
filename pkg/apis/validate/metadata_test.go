@@ -20,15 +20,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
+
 	"github.com/tektoncd/pipeline/pkg/apis/validate"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestMetadataInvalidLongName(t *testing.T) {
+func TestMetadata_Failure(t *testing.T) {
 
 	invalidMetas := []*metav1.ObjectMeta{
 		{Name: strings.Repeat("s", validate.MaxLength+1)},
 		{Name: "bad.name"},
+		{Labels: map[string]string{pipeline.GroupName: "mytekton"}},
+		{Labels: map[string]string{pipeline.GroupName + pipeline.TaskLabelKey: "mytask"}},
 	}
 	for _, invalidMeta := range invalidMetas {
 		if err := validate.ObjectMetadata(invalidMeta); err == nil {
