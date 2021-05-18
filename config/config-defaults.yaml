@@ -41,6 +41,12 @@ data:
     # minutes to use for TaskRun and PipelineRun, if none is specified.
     default-timeout-minutes: "60"  # 60 minutes
 
+    # default-short-timeout-seconds contains the default number of
+    # seconds to wait for custom task to respond, on timeout it is assumed
+    # custom task does not support the feature. e.g. retry
+    # if none is specified.
+    default-short-timeout-seconds: "30"  # 30 seconds
+
     # default-service-account contains the default service account name
     # to use for TaskRun and PipelineRun, if none is specified.
     default-service-account: "default"

@@ -185,17 +185,6 @@ func TestPipelineTask_ValidateCustomTask(t *testing.T) {
 			Paths:   []string{"conditions"},
 		},
 	}, {
-		name: "custom task doesn't support retries",
-		task: PipelineTask{
-			Name:    "foo",
-			Retries: 3,
-			TaskRef: &TaskRef{APIVersion: "example.dev/v0", Kind: "Example"},
-		},
-		expectedError: apis.FieldError{
-			Message: `invalid value: custom tasks do not support retries`,
-			Paths:   []string{"retries"},
-		},
-	}, {
 		name: "custom task doesn't support pipeline resources",
 		task: PipelineTask{
 			Name:      "foo",

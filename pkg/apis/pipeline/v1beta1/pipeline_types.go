@@ -218,9 +218,6 @@ func (pt PipelineTask) validateCustomTask() (errs *apis.FieldError) {
 		errs = errs.Also(apis.ErrInvalidValue("custom tasks do not support conditions - use when expressions instead", "conditions"))
 	}
 	// TODO(#3133): Support these features if possible.
-	if pt.Retries > 0 {
-		errs = errs.Also(apis.ErrInvalidValue("custom tasks do not support retries", "retries"))
-	}
 	if pt.Resources != nil {
 		errs = errs.Also(apis.ErrInvalidValue("custom tasks do not support PipelineResources", "resources"))
 	}

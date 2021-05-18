@@ -19,6 +19,7 @@ package resources
 import (
 	"fmt"
 
+	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	"github.com/tektoncd/pipeline/pkg/reconciler/pipeline/dag"
 	"go.uber.org/zap"
@@ -223,13 +224,24 @@ func (state PipelineRunState) getNextTasks(candidateTasks sets.String) []*Resolv
 	tasks := []*ResolvedPipelineRunTask{}
 	for _, t := range state {
 		if _, ok := candidateTasks[t.PipelineTask.Name]; ok {
-			if t.TaskRun == nil && t.Run == nil {
+			switch {
+			case t.TaskRun == nil && t.Run == nil:
 				tasks = append(tasks, t)
-			} else if t.TaskRun != nil { // only TaskRun currently supports retry
+			case t.TaskRun != nil:
 				status := t.TaskRun.Status.GetCondition(apis.ConditionSucceeded)
 				if status != nil && status.IsFalse() {
 					if !(t.TaskRun.IsCancelled() || status.Reason == v1beta1.TaskRunReasonCancelled.String() || status.Reason == ReasonConditionCheckFailed) {
 						if len(t.TaskRun.Status.RetriesStatus) < t.PipelineTask.Retries {
+							tasks = append(tasks, t)
+						}
+					}
+				}
+			case t.Run != nil:
+				status := t.Run.Status.GetCondition(apis.ConditionSucceeded)
+				if status != nil && status.IsFalse() {
+					fmt.Printf("Run retries: %d, status: %v\n", len(t.Run.Status.RetriesStatus), status)
+					if !(t.Run.IsCancelled() || status.Reason == v1alpha1.RunReasonCancelled || status.Reason == ReasonConditionCheckFailed) {
+						if len(t.Run.Status.RetriesStatus) < t.PipelineTask.Retries {
 							tasks = append(tasks, t)
 						}
 					}

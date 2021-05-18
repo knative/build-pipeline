@@ -25,6 +25,9 @@ import (
 	"strconv"
 	"time"
 
+	"gomodules.xyz/jsonpatch/v2"
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/hashicorp/go-multierror"
 	"github.com/tektoncd/pipeline/pkg/apis/config"
 	apisconfig "github.com/tektoncd/pipeline/pkg/apis/config"
@@ -773,6 +776,25 @@ func (c *Reconciler) createTaskRun(ctx context.Context, rprt *resources.Resolved
 func (c *Reconciler) createRun(ctx context.Context, rprt *resources.ResolvedPipelineRunTask, pr *v1beta1.PipelineRun) (*v1alpha1.Run, error) {
 	logger := logging.FromContext(ctx)
 	taskRunSpec := pr.GetTaskRunSpec(rprt.PipelineTask.Name)
+	existingRun, _ := c.runLister.Runs(pr.Namespace).Get(rprt.RunName)
+	if existingRun != nil {
+		if existingRun.IsRetry() { // i.e. it has been asked to retry, but it hasn't yet
+			return existingRun, nil
+		}
+		// is a retry
+		retryRunPatchBytes, _ := getRetryPatch()
+		p, err := c.PipelineClientSet.TektonV1alpha1().Runs(pr.Namespace).Patch(ctx, existingRun.Name,
+			types.JSONPatchType, retryRunPatchBytes, metav1.PatchOptions{}, "")
+		if err != nil {
+			logger.Errorf("Failed to patch the Run as a retry. %s", err)
+			return nil, err
+		}
+		logger.Infof("Patched retry for run %s", p.Name)
+		addRunRetryHistory(p)
+		c.detectUnsupportedRunRetry(ctx, pr.Namespace, p.Name)
+		return c.PipelineClientSet.TektonV1alpha1().Runs(pr.Namespace).UpdateStatus(ctx, p, metav1.UpdateOptions{})
+	}
+
 	r := &v1alpha1.Run{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            rprt.RunName,
@@ -782,6 +804,7 @@ func (c *Reconciler) createRun(ctx context.Context, rprt *resources.ResolvedPipe
 			Annotations:     getTaskrunAnnotations(pr),
 		},
 		Spec: v1alpha1.RunSpec{
+			Retries:            rprt.PipelineTask.Retries,
 			Ref:                rprt.PipelineTask.TaskRef,
 			Params:             rprt.PipelineTask.Params,
 			ServiceAccountName: taskRunSpec.TaskServiceAccountName,
@@ -896,6 +919,53 @@ func clearStatus(tr *v1beta1.TaskRun) {
 	tr.Status.StartTime = nil
 	tr.Status.CompletionTime = nil
 	tr.Status.PodName = ""
+}
+
+func addRunRetryHistory(r *v1alpha1.Run) {
+	newStatus := *r.Status.DeepCopy()
+	newStatus.RetriesStatus = nil
+	// TODO: shall we empty extrafields in retry history?
+	// newStatus.ExtraFields.Raw = []byte(`{}`)
+	r.Status.RetriesStatus = append(r.Status.RetriesStatus, newStatus)
+}
+
+// detect runs that do not support retry and updates their status.
+func (c *Reconciler) detectUnsupportedRunRetry(ctx context.Context, ns, runName string) {
+	logger := logging.FromContext(ctx)
+	shortTimeout := time.Duration(config.FromContextOrDefaults(ctx).Defaults.DefaultShortTimeoutSecondsValue) * time.Second
+	time.AfterFunc(shortTimeout, func() {
+		r, _ := c.runLister.Runs(ns).Get(runName)
+		if r.IsRetry() {
+			if r.Status.CompletionTime != nil && !r.Status.CompletionTime.Time.IsZero() {
+				elapsedTime := time.Since(r.Status.CompletionTime.Time)
+				if elapsedTime > shortTimeout {
+					// i.e. there was no other update to the Run since the last request of retry.
+					newStatus := *r.Status.DeepCopy()
+					newStatus.RetriesStatus = nil
+					newStatus.ExtraFields.Raw = []byte(`{}`)
+					for i := len(r.Status.RetriesStatus); len(r.Status.RetriesStatus) < r.Spec.Retries; i++ {
+						r.Status.RetriesStatus = append(r.Status.RetriesStatus, newStatus)
+					}
+					logger.Infof("Run %s does not support retry", r.Name)
+					if _, err := c.PipelineClientSet.TektonV1alpha1().Runs(ns).UpdateStatus(ctx, r, metav1.UpdateOptions{}); err != nil {
+						logger.Errorf("Failed to update the retry status of a run, %s", r.Name)
+					}
+				}
+			}
+		}
+	})
+}
+
+func getRetryPatch() ([]byte, error) {
+	retryRunPatchBytes, err := json.Marshal([]jsonpatch.JsonPatchOperation{{
+		Operation: "add",
+		Path:      "/spec/status",
+		Value:     v1alpha1.RunSpecStatusRetry,
+	}})
+	if err != nil {
+		return nil, err
+	}
+	return retryRunPatchBytes, nil
 }
 
 func getTaskrunAnnotations(pr *v1beta1.PipelineRun) map[string]string {
