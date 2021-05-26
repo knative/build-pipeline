@@ -1293,7 +1293,6 @@ If the custom task produces results, you can reference them in a Pipeline using 
 Pipelines do not support the following items with custom tasks:
 * Pipeline Resources
 * [`retries`](#using-the-retries-parameter)
-* [`timeout`](#configuring-the-failure-timeout)
 * Conditions (`Conditions` are deprecated.  Use [`WhenExpressions`](#guard-task-execution-using-whenexpressions) instead.)
 
 ## Code examples
