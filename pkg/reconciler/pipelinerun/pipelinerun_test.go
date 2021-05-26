@@ -18,6 +18,7 @@ package pipelinerun
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http/httptest"
 	"net/url"
@@ -45,6 +46,7 @@ import (
 	"github.com/tektoncd/pipeline/test"
 	"github.com/tektoncd/pipeline/test/diff"
 	"github.com/tektoncd/pipeline/test/names"
+	"gomodules.xyz/jsonpatch/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -522,6 +524,7 @@ func TestReconcile_CustomTask(t *testing.T) {
 					Name:  "param1",
 					Value: v1beta1.ArrayOrString{Type: v1beta1.ParamTypeString, StringVal: "value1"},
 				}},
+				Timeout: &metav1.Duration{Duration: time.Hour},
 				Ref: &v1beta1.TaskRef{
 					APIVersion: "example.dev/v0",
 					Kind:       "Example",
@@ -592,6 +595,7 @@ func TestReconcile_CustomTask(t *testing.T) {
 					},
 				},
 				ServiceAccountName: "default",
+				Timeout:            &metav1.Duration{Duration: time.Hour},
 			},
 		},
 	}, {
@@ -653,6 +657,7 @@ func TestReconcile_CustomTask(t *testing.T) {
 					Kind:       "Example",
 				},
 				ServiceAccountName: "default",
+				Timeout:            &metav1.Duration{Duration: time.Hour},
 				Workspaces: []v1beta1.WorkspaceBinding{{
 					Name:    "taskws",
 					SubPath: "foo/bar",
@@ -1562,6 +1567,210 @@ func TestReconcileOnCancelledPipelineRun(t *testing.T) {
 		t.Errorf("Expected PipelineRun status to be complete and false, but was %v", reconciledRun.Status.GetCondition(apis.ConditionSucceeded))
 	}
 }
+
+func TestReconcileForCustomTaskWithPipelineTaskTimedOut(t *testing.T) {
+	names.TestingSeed()
+	// TestReconcileForCustomTaskWithTimeout runs "Reconcile" on a PipelineRun.
+	// It verifies that reconcile is successful, and the individual
+	// the custom task which has timed out, is also patched as cancelled.
+	ps := []*v1beta1.Pipeline{tb.Pipeline("test-pipeline", tb.PipelineNamespace("test"),
+		tb.PipelineSpec(tb.PipelineTask("hello-world-1", "hello-world"))),
+	}
+	prName := "test-pipeline-run-custom-task-with-timeout"
+	prs := []*v1beta1.PipelineRun{tb.PipelineRun(prName,
+		tb.PipelineRunNamespace("test"),
+		tb.PipelineRunSpec("test-pipeline",
+			tb.PipelineRunServiceAccountName("test-sa"),
+		),
+	)}
+	ps[0].Spec.Tasks[0].TaskRef = &v1beta1.TaskRef{APIVersion: "example.dev/v0", Kind: "Example"}
+	startedRun := &v1alpha1.Run{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pipeline-run-custom-task-with-timeout-hello-world-1",
+			Namespace: "test",
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind: "PipelineRun",
+				Name: prName,
+			}},
+			Labels: map[string]string{
+				pipeline.GroupName + pipeline.PipelineLabelKey:     "test-pipeline",
+				pipeline.GroupName + pipeline.PipelineRunLabelKey:  prName,
+				pipeline.GroupName + pipeline.PipelineTaskLabelKey: "hello-world-1",
+			},
+			Annotations: map[string]string{},
+		},
+		Spec: v1alpha1.RunSpec{
+			Timeout: &metav1.Duration{Duration: time.Minute},
+			Ref: &v1beta1.TaskRef{
+				APIVersion: "example.dev/v0",
+				Kind:       "Example",
+			},
+		},
+		Status: v1alpha1.RunStatus{
+			RunStatusFields: v1alpha1.RunStatusFields{
+				StartTime: &metav1.Time{Time: time.Now().Add(-1 * time.Minute)},
+			},
+			Status: duckv1.Status{
+				Conditions: []apis.Condition{
+					{
+						Type:   apis.ConditionSucceeded,
+						Status: corev1.ConditionUnknown,
+					},
+				},
+			},
+		},
+	}
+	runs := []*v1alpha1.Run{startedRun}
+	cms := []*corev1.ConfigMap{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: config.GetFeatureFlagsConfigName(), Namespace: system.Namespace()},
+			Data: map[string]string{
+				"enable-custom-tasks": "true",
+			},
+		},
+	}
+	d := test.Data{
+		PipelineRuns: prs,
+		Pipelines:    ps,
+		ConfigMaps:   cms,
+		Runs:         runs,
+	}
+	prt := newPipelineRunTest(d, t)
+	defer prt.Cancel()
+
+	wantEvents := []string{
+		"Normal Started",
+		"Normal Running Tasks Completed: 0 \\(Failed: 0, Cancelled 0\\), Incomplete: 1, Skipped: 0",
+	}
+	_, clients := prt.reconcileRun("test", prName, wantEvents, false)
+
+	actions := clients.Pipeline.Actions()
+	if len(actions) < 2 {
+		t.Fatalf("Expected client to have at least two action implementation but it has %d", len(actions))
+	}
+
+	// The patch operation to cancel the run must be executed.
+	got := []jsonpatch.Operation{}
+	for _, a := range actions {
+		if action, ok := a.(ktesting.PatchAction); ok {
+			if a.(ktesting.PatchAction).Matches("patch", "runs") {
+				err := json.Unmarshal(action.GetPatch(), &got)
+				if err != nil {
+					t.Fatalf("Expected to get a patch operation for cancel,"+
+						" but got error: %v\n", err)
+				}
+				break
+			}
+		}
+	}
+	want := []jsonpatch.JsonPatchOperation{{
+		Operation: "add",
+		Path:      "/spec/status",
+		Value:     "RunCancelled",
+	}}
+	if d := cmp.Diff(got, want); d != "" {
+		t.Fatalf("Expected cancel patch operation, but got a mismatch %s", diff.PrintWantGot(d))
+	}
+}
+
+func TestReconcileForCustomTaskWithPipelineRunTimedOut(t *testing.T) {
+	names.TestingSeed()
+	// TestReconcileForCustomTaskWithPipelineRunTimedOut runs "Reconcile" on a
+	// PipelineRun that has timed out.
+	// It verifies that reconcile is successful, and the custom task has also timed
+	// out and patched as cancelled.
+	pipelineName := "test-pipeline"
+	ps := []*v1beta1.Pipeline{tb.Pipeline(pipelineName,
+		tb.PipelineNamespace("test"), tb.PipelineSpec(
+			tb.PipelineTask("hello-world-1", "hello-world"),
+		))}
+
+	prName := "test-pipeline-run-custom-task"
+	prs := []*v1beta1.PipelineRun{tb.PipelineRun(prName,
+		tb.PipelineRunNamespace("test"),
+		tb.PipelineRunSpec("test-pipeline",
+			tb.PipelineRunServiceAccountName("test-sa"),
+			tb.PipelineRunTimeout(12*time.Hour),
+		),
+		tb.PipelineRunStatus(
+			tb.PipelineRunStartTime(time.Now().AddDate(0, 0, -1))),
+	)}
+	ps[0].Spec.Tasks[0].TaskRef = &v1beta1.TaskRef{APIVersion: "example.dev/v0", Kind: "Example"}
+
+	cms := []*corev1.ConfigMap{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: config.GetFeatureFlagsConfigName(), Namespace: system.Namespace()},
+			Data: map[string]string{
+				"enable-custom-tasks": "true",
+			},
+		},
+	}
+	d := test.Data{
+		PipelineRuns: prs,
+		Pipelines:    ps,
+		ConfigMaps:   cms,
+	}
+	prt := newPipelineRunTest(d, t)
+	defer prt.Cancel()
+
+	wantEvents := []string{
+		fmt.Sprintf("Warning Failed PipelineRun \"%s\" failed to finish within \"12h0m0s\"", prName),
+	}
+	runName := "test-pipeline-run-custom-task-hello-world-1-9l9zj"
+
+	reconciledRun, clients := prt.reconcileRun("test", prName, wantEvents, false)
+
+	postReconcileRun, err := clients.Pipeline.TektonV1alpha1().Runs("test").Get(prt.TestAssets.Ctx, runName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Run get request failed, %v", err)
+	}
+
+	gotTimeoutValue := postReconcileRun.GetTimeout()
+	expectedTimeoutValue := time.Second
+
+	if d := cmp.Diff(gotTimeoutValue, expectedTimeoutValue); d != "" {
+		t.Fatalf("Expected timeout for created Run, but got a mismatch %s", diff.PrintWantGot(d))
+	}
+
+	if reconciledRun.Status.CompletionTime == nil {
+		t.Errorf("Expected a CompletionTime on already timedout PipelineRun but was nil")
+	}
+
+	// The PipelineRun should be timed out.
+	if reconciledRun.Status.GetCondition(apis.ConditionSucceeded).Reason != "PipelineRunTimeout" {
+		t.Errorf("Expected PipelineRun to be timed out, but condition reason is %s",
+			reconciledRun.Status.GetCondition(apis.ConditionSucceeded))
+	}
+
+	actions := clients.Pipeline.Actions()
+	if len(actions) < 2 {
+		t.Fatalf("Expected client to have at least two action implementation but it has %d", len(actions))
+	}
+
+	// The patch operation to cancel the run must be executed.
+	got := []jsonpatch.Operation{}
+	for _, a := range actions {
+		if action, ok := a.(ktesting.PatchAction); ok {
+			if a.(ktesting.PatchAction).Matches("patch", "runs") {
+				err := json.Unmarshal(action.GetPatch(), &got)
+				if err != nil {
+					t.Fatalf("Expected to get a patch operation for cancel,"+
+						" but got error: %v\n", err)
+				}
+				break
+			}
+		}
+	}
+	want := []jsonpatch.JsonPatchOperation{{
+		Operation: "add",
+		Path:      "/spec/status",
+		Value:     "RunCancelled",
+	}}
+	if d := cmp.Diff(got, want); d != "" {
+		t.Fatalf("Expected RunCancelled patch operation, but got a mismatch %s", diff.PrintWantGot(d))
+	}
+}
+
 
 func TestReconcileOnCancelledRunFinallyPipelineRun(t *testing.T) {
 	// TestReconcileOnCancelledRunFinallyPipelineRun runs "Reconcile" on a PipelineRun that has been gracefully cancelled.

@@ -21,9 +21,11 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	apisconfig "github.com/tektoncd/pipeline/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	v1beta1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	"github.com/tektoncd/pipeline/pkg/client/clientset/versioned/scheme"
+	"github.com/tektoncd/pipeline/test/diff"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -251,5 +253,99 @@ func TestEncodeDecodeExtraFields(t *testing.T) {
 	}
 	if d := cmp.Diff(status, newStatus); d != "" {
 		t.Fatalf("Diff(-want,+got): %s", d)
+	}
+}
+
+func TestRunGetTimeOut(t *testing.T) {
+	testCases := []struct {
+		name          string
+		run           v1alpha1.Run
+		expectedValue time.Duration
+	}{{
+		name:          "runWithNoTimeout",
+		run:           v1alpha1.Run{},
+		expectedValue: apisconfig.DefaultTimeoutMinutes * time.Minute,
+	}, {
+		name: "runWithTimeout",
+		run: v1alpha1.Run{
+			TypeMeta: metav1.TypeMeta{Kind: "kind", APIVersion: "apiVersion"},
+			Spec:     v1alpha1.RunSpec{Timeout: &metav1.Duration{10 * time.Second}},
+		},
+		expectedValue: 10 * time.Second,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.run.GetTimeout()
+			if d := cmp.Diff(result, tc.expectedValue); d != "" {
+				t.Fatalf(diff.PrintWantGot(d))
+			}
+		})
+	}
+}
+
+func TestRunHasTimedOut(t *testing.T) {
+	testCases := []struct {
+		name          string
+		run           v1alpha1.Run
+		expectedValue bool
+	}{{
+		name:          "runWithNoStartTimeNoTimeout",
+		run:           v1alpha1.Run{},
+		expectedValue: false,
+	}, {
+		name: "runWithStartTimeNoTimeout",
+		run: v1alpha1.Run{
+			TypeMeta: metav1.TypeMeta{Kind: "kind", APIVersion: "apiVersion"},
+			Status: v1alpha1.RunStatus{
+				RunStatusFields: v1alpha1.RunStatusFields{
+					StartTime: &metav1.Time{Time: time.Now()},
+				},
+			}},
+		expectedValue: false,
+	}, {
+		name: "runWithStartTimeNoTimeout2",
+		run: v1alpha1.Run{
+			TypeMeta: metav1.TypeMeta{Kind: "kind", APIVersion: "apiVersion"},
+			Status: v1alpha1.RunStatus{
+				RunStatusFields: v1alpha1.RunStatusFields{
+					StartTime: &metav1.Time{Time: time.Now().Add(-1 * time.Hour)},
+				},
+			}},
+		expectedValue: true,
+	}, {
+		name: "runWithStartTimeAndTimeout",
+		run: v1alpha1.Run{
+			TypeMeta: metav1.TypeMeta{Kind: "kind", APIVersion: "apiVersion"},
+			Spec:     v1alpha1.RunSpec{Timeout: &metav1.Duration{10 * time.Second}},
+			Status: v1alpha1.RunStatus{RunStatusFields: v1alpha1.RunStatusFields{
+				StartTime: &metav1.Time{Time: time.Now().Add(-1 * time.Hour)},
+			}}},
+		expectedValue: true,
+	}, {
+		name: "runWithNoStartTimeAndTimeout",
+		run: v1alpha1.Run{
+			TypeMeta: metav1.TypeMeta{Kind: "kind", APIVersion: "apiVersion"},
+			Spec:     v1alpha1.RunSpec{Timeout: &metav1.Duration{1 * time.Second}},
+		},
+		expectedValue: false,
+	}, {
+		name: "runWithStartTimeAndTimeout2",
+		run: v1alpha1.Run{
+			TypeMeta: metav1.TypeMeta{Kind: "kind", APIVersion: "apiVersion"},
+			Spec:     v1alpha1.RunSpec{Timeout: &metav1.Duration{10 * time.Second}},
+			Status: v1alpha1.RunStatus{RunStatusFields: v1alpha1.RunStatusFields{
+				StartTime: &metav1.Time{Time: time.Now()},
+			}}},
+		expectedValue: false,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.run.HasTimedOut()
+			if d := cmp.Diff(result, tc.expectedValue); d != "" {
+				t.Fatalf(diff.PrintWantGot(d))
+			}
+		})
 	}
 }

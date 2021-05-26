@@ -19,12 +19,10 @@ package v1beta1
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/tektoncd/pipeline/test/diff"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"knative.dev/pkg/apis"
@@ -205,17 +203,6 @@ func TestPipelineTask_ValidateCustomTask(t *testing.T) {
 		expectedError: apis.FieldError{
 			Message: `invalid value: custom tasks do not support PipelineResources`,
 			Paths:   []string{"resources"},
-		},
-	}, {
-		name: "custom task doesn't support timeout",
-		task: PipelineTask{
-			Name:    "foo",
-			Timeout: &metav1.Duration{Duration: time.Duration(3)},
-			TaskRef: &TaskRef{APIVersion: "example.dev/v0", Kind: "Example"},
-		},
-		expectedError: apis.FieldError{
-			Message: `invalid value: custom tasks do not support timeout`,
-			Paths:   []string{"timeout"},
 		},
 	}}
 	for _, tt := range tests {

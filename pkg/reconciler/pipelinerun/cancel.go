@@ -57,6 +57,11 @@ func init() {
 	}
 }
 
+func cancelRun(ctx context.Context, runName string, namespace string, clientSet clientset.Interface) error {
+	_, err := clientSet.TektonV1alpha1().Runs(namespace).Patch(ctx, runName, types.JSONPatchType, cancelRunPatchBytes, metav1.PatchOptions{}, "")
+	return err
+}
+
 // cancelPipelineRun marks the PipelineRun as cancelled and any resolved TaskRun(s) too.
 func cancelPipelineRun(ctx context.Context, logger *zap.SugaredLogger, pr *v1beta1.PipelineRun, clientSet clientset.Interface) error {
 	errs := cancelPipelineTaskRuns(ctx, logger, pr, clientSet)
@@ -108,7 +113,7 @@ func cancelPipelineTaskRuns(ctx context.Context, logger *zap.SugaredLogger, pr *
 	for runName := range pr.Status.Runs {
 		logger.Infof("cancelling Run %s", runName)
 
-		if _, err := clientSet.TektonV1alpha1().Runs(pr.Namespace).Patch(ctx, runName, types.JSONPatchType, cancelRunPatchBytes, metav1.PatchOptions{}, ""); err != nil {
+		if err := cancelRun(ctx, runName, pr.Namespace, clientSet); err != nil {
 			errs = append(errs, fmt.Errorf("Failed to patch Run `%s` with cancellation: %s", runName, err).Error())
 			continue
 		}

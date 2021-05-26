@@ -224,9 +224,6 @@ func (pt PipelineTask) validateCustomTask() (errs *apis.FieldError) {
 	if pt.Resources != nil {
 		errs = errs.Also(apis.ErrInvalidValue("custom tasks do not support PipelineResources", "resources"))
 	}
-	if pt.Timeout != nil {
-		errs = errs.Also(apis.ErrInvalidValue("custom tasks do not support timeout", "timeout"))
-	}
 	return errs
 }
 
