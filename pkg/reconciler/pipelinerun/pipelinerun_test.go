@@ -1570,9 +1570,9 @@ func TestReconcileOnCancelledPipelineRun(t *testing.T) {
 
 func TestReconcileForCustomTaskWithPipelineTaskTimedOut(t *testing.T) {
 	names.TestingSeed()
-	// TestReconcileForCustomTaskWithTimeout runs "Reconcile" on a PipelineRun.
+	// TestReconcileForCustomTaskWithPipelineTaskTimedOut runs "Reconcile" on a PipelineRun.
 	// It verifies that reconcile is successful, and the individual
-	// the custom task which has timed out, is also patched as cancelled.
+	// custom task which has timed out, is patched as cancelled.
 	ps := []*v1beta1.Pipeline{tb.Pipeline("test-pipeline", tb.PipelineNamespace("test"),
 		tb.PipelineSpec(tb.PipelineTask("hello-world-1", "hello-world"))),
 	}
@@ -1770,7 +1770,6 @@ func TestReconcileForCustomTaskWithPipelineRunTimedOut(t *testing.T) {
 		t.Fatalf("Expected RunCancelled patch operation, but got a mismatch %s", diff.PrintWantGot(d))
 	}
 }
-
 
 func TestReconcileOnCancelledRunFinallyPipelineRun(t *testing.T) {
 	// TestReconcileOnCancelledRunFinallyPipelineRun runs "Reconcile" on a PipelineRun that has been gracefully cancelled.

@@ -110,6 +110,8 @@ func (rs RunSpec) GetParam(name string) *v1beta1.Param {
 const (
 	// RunReasonCancelled must be used in the Condition Reason to indicate that a Run was cancelled.
 	RunReasonCancelled = "RunCancelled"
+	// RunReasonTimedOut must be used in the Condition Reason to indicate that a Run was timed out.
+	RunReasonTimedOut = "RunTimedOut"
 	// RunReasonWorkspaceNotSupported can be used in the Condition Reason to indicate that the
 	// Run contains a workspace which is not supported by this custom task.
 	RunReasonWorkspaceNotSupported = "RunWorkspaceNotSupported"

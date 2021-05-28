@@ -97,7 +97,7 @@ func WaitForTaskRunState(ctx context.Context, c *clients, name string, inState C
 
 // WaitForDeploymentState polls the status of the Deployment called name
 // from client every interval until inState returns `true` indicating it is done,
-// returns an  error or timeout. desc will be used to name the metric that is emitted to
+// returns an  error on timeout. desc will be used to name the metric that is emitted to
 // track how long it took for name to get into the state checked by inState.
 func WaitForDeploymentState(ctx context.Context, c *clients, name string, namespace string, inState func(d *appsv1.Deployment) (bool, error), desc string) error {
 	metricName := fmt.Sprintf("WaitForDeploymentState/%s/%s", name, desc)
