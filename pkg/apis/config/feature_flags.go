@@ -37,6 +37,7 @@ const (
 	enableTektonOCIBundles                  = "enable-tekton-oci-bundles"
 	enableCustomTasks                       = "enable-custom-tasks"
 	enableAPIFields                         = "enable-api-fields"
+	scopeWhenExpressionsToTask              = "scope-when-expressions-to-task"
 	DefaultDisableHomeEnvOverwrite          = true
 	DefaultDisableWorkingDirOverwrite       = true
 	DefaultDisableAffinityAssistant         = false
@@ -45,6 +46,7 @@ const (
 	DefaultRequireGitSSHSecretKnownHosts    = false
 	DefaultEnableTektonOciBundles           = false
 	DefaultEnableCustomTasks                = false
+	DefaultScopeWhenExpressionsToTask       = false
 	DefaultEnableAPIFields                  = StableAPIFields
 )
 
@@ -59,6 +61,7 @@ type FeatureFlags struct {
 	RequireGitSSHSecretKnownHosts    bool
 	EnableTektonOCIBundles           bool
 	EnableCustomTasks                bool
+	ScopeWhenExpressionsToTask       bool
 	EnableAPIFields                  string
 }
 
@@ -103,6 +106,9 @@ func NewFeatureFlagsFromMap(cfgMap map[string]string) (*FeatureFlags, error) {
 		return nil, err
 	}
 	if err := setFeature(requireGitSSHSecretKnownHostsKey, DefaultRequireGitSSHSecretKnownHosts, &tc.RequireGitSSHSecretKnownHosts); err != nil {
+		return nil, err
+	}
+	if err := setFeature(scopeWhenExpressionsToTask, DefaultScopeWhenExpressionsToTask, &tc.ScopeWhenExpressionsToTask); err != nil {
 		return nil, err
 	}
 	if err := setEnabledAPIFields(cfgMap, DefaultEnableAPIFields, &tc.EnableAPIFields); err != nil {
