@@ -95,9 +95,12 @@ func NewController(namespace string, images pipeline.Images) func(context.Contex
 		}
 
 		logger.Info("Setting up event handlers")
-		taskRunInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-			AddFunc:    impl.Enqueue,
-			UpdateFunc: controller.PassNew(impl.Enqueue),
+		taskRunInformer.Informer().AddEventHandler(cache.FilteringResourceEventHandler{
+			FilterFunc: filterTaskRunsWithoutStatusTaskSpec,
+			Handler: cache.ResourceEventHandlerFuncs{
+				AddFunc:    impl.Enqueue,
+				UpdateFunc: controller.PassNew(impl.Enqueue),
+			},
 		})
 
 		c.tracker = tracker.New(impl.EnqueueKey, controller.GetTrackerLease(ctx))
@@ -111,4 +114,15 @@ func NewController(namespace string, images pipeline.Images) func(context.Contex
 
 		return impl
 	}
+}
+
+// filterTaskRunsWithoutStatusTaskSpec returns true if and only if
+// a taskrun is passed in with a status.taskSpec field populated. All
+// other taskruns are ignored.
+func filterTaskRunsWithoutStatusTaskSpec(obj interface{}) bool {
+	tr, ok := obj.(*v1beta1.TaskRun)
+	if !ok {
+		return false
+	}
+	return tr.Status.TaskSpec != nil
 }

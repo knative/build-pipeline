@@ -271,9 +271,28 @@ func (c *Reconciler) prepare(ctx context.Context, tr *v1beta1.TaskRun) (*v1beta1
 	// and may not have had all of the assumed default specified.
 	tr.SetDefaults(contexts.WithUpgradeViaDefaulting(ctx))
 
-	getTaskfunc, err := resources.GetTaskFuncFromTaskRun(ctx, c.KubeClientSet, c.PipelineClientSet, tr)
+	var err error
+	var taskMeta metav1.ObjectMeta
+	var taskSpec v1beta1.TaskSpec
+
+	if tr.Status.TaskSpec == nil {
+		err = fmt.Errorf("task spec expected to be cached in status of taskrun %s/%s but it was not found", tr.Namespace, tr.Name)
+	} else {
+		var name string
+		if tr.Spec.TaskRef != nil {
+			name = tr.Spec.TaskRef.Name
+		} else {
+			name = tr.ObjectMeta.Name
+		}
+		taskMeta = metav1.ObjectMeta{
+			Name:      name,
+			Namespace: tr.Namespace,
+		}
+		taskSpec = *tr.Status.TaskSpec
+	}
+
 	if err != nil {
-		logger.Errorf("Failed to fetch task reference %s: %v", tr.Spec.TaskRef.Name, err)
+		logger.Errorf("Failed to fetch task reference %s: %v", taskMeta.Name, err)
 		tr.Status.SetCondition(&apis.Condition{
 			Type:    apis.ConditionSucceeded,
 			Status:  corev1.ConditionFalse,
@@ -283,48 +302,13 @@ func (c *Reconciler) prepare(ctx context.Context, tr *v1beta1.TaskRun) (*v1beta1
 		return nil, nil, err
 	}
 
-	taskMeta, taskSpec, err := resources.GetTaskData(ctx, tr, getTaskfunc)
-	if err != nil {
-		logger.Errorf("Failed to determine Task spec to use for taskrun %s: %v", tr.Name, err)
-		tr.Status.MarkResourceFailed(podconvert.ReasonFailedResolution, err)
-		return nil, nil, controller.NewPermanentError(err)
-	}
-
-	// Store the fetched TaskSpec on the TaskRun for auditing
-	if err := storeTaskSpec(ctx, tr, taskSpec); err != nil {
-		logger.Errorf("Failed to store TaskSpec on TaskRun.Statusfor taskrun %s: %v", tr.Name, err)
-	}
-
-	// Propagate labels from Task to TaskRun.
-	if tr.ObjectMeta.Labels == nil {
-		tr.ObjectMeta.Labels = make(map[string]string, len(taskMeta.Labels)+1)
-	}
-	for key, value := range taskMeta.Labels {
-		tr.ObjectMeta.Labels[key] = value
-	}
-	if tr.Spec.TaskRef != nil {
-		if tr.Spec.TaskRef.Kind == "ClusterTask" {
-			tr.ObjectMeta.Labels[pipeline.GroupName+pipeline.ClusterTaskLabelKey] = taskMeta.Name
-		} else {
-			tr.ObjectMeta.Labels[pipeline.GroupName+pipeline.TaskLabelKey] = taskMeta.Name
-		}
-	}
-
-	// Propagate annotations from Task to TaskRun.
-	if tr.ObjectMeta.Annotations == nil {
-		tr.ObjectMeta.Annotations = make(map[string]string, len(taskMeta.Annotations))
-	}
-	for key, value := range taskMeta.Annotations {
-		tr.ObjectMeta.Annotations[key] = value
-	}
-
 	inputs := []v1beta1.TaskResourceBinding{}
 	outputs := []v1beta1.TaskResourceBinding{}
 	if tr.Spec.Resources != nil {
 		inputs = tr.Spec.Resources.Inputs
 		outputs = tr.Spec.Resources.Outputs
 	}
-	rtr, err := resources.ResolveTaskResources(taskSpec, taskMeta.Name, resources.GetTaskKind(tr), inputs, outputs, c.resourceLister.PipelineResources(tr.Namespace).Get)
+	rtr, err := resources.ResolveTaskResources(&taskSpec, taskMeta.Name, resources.GetTaskKind(tr), inputs, outputs, c.resourceLister.PipelineResources(tr.Namespace).Get)
 	if err != nil {
 		if k8serrors.IsNotFound(err) && tknreconciler.IsYoungResource(tr) {
 			// For newly created resources, don't fail immediately.
@@ -346,7 +330,7 @@ func (c *Reconciler) prepare(ctx context.Context, tr *v1beta1.TaskRun) (*v1beta1
 		return nil, nil, controller.NewPermanentError(err)
 	}
 
-	if err := c.updateTaskRunWithDefaultWorkspaces(ctx, tr, taskSpec); err != nil {
+	if err := c.updateTaskRunWithDefaultWorkspaces(ctx, tr, &taskSpec); err != nil {
 		logger.Errorf("Failed to update taskrun %s with default workspace: %v", tr.Name, err)
 		tr.Status.MarkResourceFailed(podconvert.ReasonFailedResolution, err)
 		return nil, nil, controller.NewPermanentError(err)
@@ -373,7 +357,7 @@ func (c *Reconciler) prepare(ctx context.Context, tr *v1beta1.TaskRun) (*v1beta1
 	logger.Infof("Cloud Events: %s", tr.Status.CloudEvents)
 	cloudevent.InitializeCloudEvents(tr, rtr.Outputs)
 
-	return taskSpec, rtr, nil
+	return &taskSpec, rtr, nil
 }
 
 // `reconcile` creates the Pod associated to the TaskRun, and it pulls back status
