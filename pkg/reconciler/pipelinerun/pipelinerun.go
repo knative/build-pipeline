@@ -683,7 +683,11 @@ func (c *Reconciler) runNextSchedulableTask(ctx context.Context, pr *v1beta1.Pip
 		}
 		if rprt.ResolvedConditionChecks == nil || rprt.ResolvedConditionChecks.IsSuccess() {
 			if rprt.IsCustomTask() {
-				rprt.Run, err = c.createRun(ctx, rprt, pr)
+				if rprt.IsFinalTask(pipelineRunFacts) {
+					rprt.Run, err = c.createRun(ctx, rprt, pr, getFinallyTaskRunTimeout)
+				} else {
+					rprt.Run, err = c.createRun(ctx, rprt, pr, getTaskRunTimeout)
+				}
 				if err != nil {
 					recorder.Eventf(pr, corev1.EventTypeWarning, "RunCreationFailed", "Failed to create Run %q: %v", rprt.RunName, err)
 					return fmt.Errorf("error creating Run called %s for PipelineTask %s from PipelineRun %s: %w", rprt.RunName, rprt.PipelineTask.Name, pr.Name, err)
@@ -801,7 +805,7 @@ func (c *Reconciler) createTaskRun(ctx context.Context, rprt *resources.Resolved
 	return c.PipelineClientSet.TektonV1beta1().TaskRuns(pr.Namespace).Create(ctx, tr, metav1.CreateOptions{})
 }
 
-func (c *Reconciler) createRun(ctx context.Context, rprt *resources.ResolvedPipelineRunTask, pr *v1beta1.PipelineRun) (*v1alpha1.Run, error) {
+func (c *Reconciler) createRun(ctx context.Context, rprt *resources.ResolvedPipelineRunTask, pr *v1beta1.PipelineRun, getTimeoutFunc getTimeoutFunc) (*v1alpha1.Run, error) {
 	logger := logging.FromContext(ctx)
 	taskRunSpec := pr.GetTaskRunSpec(rprt.PipelineTask.Name)
 	r := &v1alpha1.Run{
@@ -816,7 +820,7 @@ func (c *Reconciler) createRun(ctx context.Context, rprt *resources.ResolvedPipe
 			Ref:                rprt.PipelineTask.TaskRef,
 			Params:             rprt.PipelineTask.Params,
 			ServiceAccountName: taskRunSpec.TaskServiceAccountName,
-			Timeout:            getTaskRunTimeout(ctx, pr, rprt),
+			Timeout:            getTimeoutFunc(ctx, pr, rprt),
 			PodTemplate:        taskRunSpec.TaskPodTemplate,
 		},
 	}
