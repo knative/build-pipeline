@@ -3247,32 +3247,6 @@ func TestFailTaskRun(t *testing.T) {
 	}
 }
 
-func Test_storeTaskSpec(t *testing.T) {
-
-	ctx, _ := ttesting.SetupFakeContext(t)
-	tr := tb.TaskRun("foo", tb.TaskRunSpec(tb.TaskRunTaskRef("foo-task")))
-
-	ts := tb.Task("some-task", tb.TaskSpec(tb.TaskDescription("foo-task"))).Spec
-	ts1 := tb.Task("some-task", tb.TaskSpec(tb.TaskDescription("foo-task"))).Spec
-	want := ts.DeepCopy()
-
-	// The first time we set it, it should get copied.
-	if err := storeTaskSpec(ctx, tr, &ts); err != nil {
-		t.Errorf("storeTaskSpec() error = %v", err)
-	}
-	if d := cmp.Diff(tr.Status.TaskSpec, want); d != "" {
-		t.Fatalf(diff.PrintWantGot(d))
-	}
-
-	// The next time, it should not get overwritten
-	if err := storeTaskSpec(ctx, tr, &ts1); err != nil {
-		t.Errorf("storeTaskSpec() error = %v", err)
-	}
-	if d := cmp.Diff(tr.Status.TaskSpec, want); d != "" {
-		t.Fatalf(diff.PrintWantGot(d))
-	}
-}
-
 func TestWillOverwritePodAffinity(t *testing.T) {
 	affinity := &corev1.Affinity{
 		PodAffinity: &corev1.PodAffinity{

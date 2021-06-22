@@ -271,9 +271,11 @@ func (c *Reconciler) prepare(ctx context.Context, tr *v1beta1.TaskRun) (*v1beta1
 	// and may not have had all of the assumed default specified.
 	tr.SetDefaults(contexts.WithUpgradeViaDefaulting(ctx))
 
-	var err error
-	var taskMeta metav1.ObjectMeta
-	var taskSpec v1beta1.TaskSpec
+	var (
+		err      error
+		taskMeta metav1.ObjectMeta
+		taskSpec v1beta1.TaskSpec
+	)
 
 	if tr.Status.TaskSpec == nil {
 		err = fmt.Errorf("task spec expected to be cached in status of taskrun %s/%s but it was not found", tr.Namespace, tr.Name)
@@ -292,7 +294,7 @@ func (c *Reconciler) prepare(ctx context.Context, tr *v1beta1.TaskRun) (*v1beta1
 	}
 
 	if err != nil {
-		logger.Errorf("Failed to fetch task reference %s: %v", taskMeta.Name, err)
+		logger.Errorf("Error reading task %s: %v", taskMeta.Name, err)
 		tr.Status.SetCondition(&apis.Condition{
 			Type:    apis.ConditionSucceeded,
 			Status:  corev1.ConditionFalse,
@@ -300,6 +302,14 @@ func (c *Reconciler) prepare(ctx context.Context, tr *v1beta1.TaskRun) (*v1beta1
 			Message: err.Error(),
 		})
 		return nil, nil, err
+	}
+
+	if tr.Spec.TaskRef != nil {
+		if tr.Spec.TaskRef.Kind == "ClusterTask" {
+			tr.ObjectMeta.Labels[pipeline.GroupName+pipeline.ClusterTaskLabelKey] = taskMeta.Name
+		} else {
+			tr.ObjectMeta.Labels[pipeline.GroupName+pipeline.TaskLabelKey] = taskMeta.Name
+		}
 	}
 
 	inputs := []v1beta1.TaskResourceBinding{}
@@ -762,14 +772,6 @@ func applyVolumeClaimTemplates(workspaceBindings []v1beta1.WorkspaceBinding, own
 		taskRunWorkspaceBindings = append(taskRunWorkspaceBindings, b)
 	}
 	return taskRunWorkspaceBindings
-}
-
-func storeTaskSpec(ctx context.Context, tr *v1beta1.TaskRun, ts *v1beta1.TaskSpec) error {
-	// Only store the TaskSpec once, if it has never been set before.
-	if tr.Status.TaskSpec == nil {
-		tr.Status.TaskSpec = ts
-	}
-	return nil
 }
 
 // willOverwritePodSetAffinity returns a bool indicating whether the

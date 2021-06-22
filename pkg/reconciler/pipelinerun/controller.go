@@ -98,7 +98,7 @@ func NewController(namespace string, images pipeline.Images) func(context.Contex
 
 		logger.Info("Setting up event handlers")
 		pipelineRunInformer.Informer().AddEventHandler(cache.FilteringResourceEventHandler{
-			FilterFunc: filterPipelineRunsWithoutStatusPipelineSpec,
+			FilterFunc: ignorePipelineRunsWithEmptyStatusSpec,
 			Handler: cache.ResourceEventHandlerFuncs{
 				AddFunc:    impl.Enqueue,
 				UpdateFunc: controller.PassNew(impl.Enqueue),
@@ -120,10 +120,9 @@ func NewController(namespace string, images pipeline.Images) func(context.Contex
 	}
 }
 
-func filterPipelineRunsWithoutStatusPipelineSpec(obj interface{}) bool {
+// ignorePipelineRunsWithEmptyStatusSpec limits PipelineRun reconciles to only
+// those PipelineRuns with a populated status.pipelineSpec field.
+func ignorePipelineRunsWithEmptyStatusSpec(obj interface{}) bool {
 	pr, ok := obj.(*v1beta1.PipelineRun)
-	if !ok {
-		return false
-	}
-	return pr.Status.PipelineSpec != nil
+	return ok && pr.Status.PipelineSpec != nil
 }

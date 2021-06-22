@@ -4008,31 +4008,6 @@ func TestReconcileWithPipelineResults(t *testing.T) {
 	}
 }
 
-func Test_storePipelineSpec(t *testing.T) {
-	ctx := context.Background()
-	pr := tb.PipelineRun("foo")
-
-	ps := tb.Pipeline("some-pipeline", tb.PipelineSpec(tb.PipelineDescription("foo-pipeline"))).Spec
-	ps1 := tb.Pipeline("some-pipeline", tb.PipelineSpec(tb.PipelineDescription("bar-pipeline"))).Spec
-	want := ps.DeepCopy()
-
-	// The first time we set it, it should get copied.
-	if err := storePipelineSpec(ctx, pr, &ps); err != nil {
-		t.Errorf("storePipelineSpec() error = %v", err)
-	}
-	if d := cmp.Diff(pr.Status.PipelineSpec, want); d != "" {
-		t.Fatalf(diff.PrintWantGot(d))
-	}
-
-	// The next time, it should not get overwritten
-	if err := storePipelineSpec(ctx, pr, &ps1); err != nil {
-		t.Errorf("storePipelineSpec() error = %v", err)
-	}
-	if d := cmp.Diff(pr.Status.PipelineSpec, want); d != "" {
-		t.Fatalf(diff.PrintWantGot(d))
-	}
-}
-
 func TestReconcileOutOfSyncPipelineRun(t *testing.T) {
 	// It may happen that a PipelineRun creates one or more TaskRuns during reconcile
 	// but it fails to sync the update on the status back. This test verifies that

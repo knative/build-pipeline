@@ -364,28 +364,6 @@ func (c *Reconciler) reconcile(ctx context.Context, pr *v1beta1.PipelineRun) err
 		return controller.NewPermanentError(err)
 	}
 
-	// Store the fetched PipelineSpec on the PipelineRun for auditing
-	if err := storePipelineSpec(ctx, pr, &pipelineSpec); err != nil {
-		logger.Errorf("Failed to store PipelineSpec on PipelineRun.Status for pipelinerun %s: %v", pr.Name, err)
-	}
-
-	// Propagate labels from Pipeline to PipelineRun.
-	if pr.ObjectMeta.Labels == nil {
-		pr.ObjectMeta.Labels = make(map[string]string, len(pipelineMeta.Labels)+1)
-	}
-	for key, value := range pipelineMeta.Labels {
-		pr.ObjectMeta.Labels[key] = value
-	}
-	pr.ObjectMeta.Labels[pipeline.GroupName+pipeline.PipelineLabelKey] = pipelineMeta.Name
-
-	// Propagate annotations from Pipeline to PipelineRun.
-	if pr.ObjectMeta.Annotations == nil {
-		pr.ObjectMeta.Annotations = make(map[string]string, len(pipelineMeta.Annotations))
-	}
-	for key, value := range pipelineMeta.Annotations {
-		pr.ObjectMeta.Annotations[key] = value
-	}
-
 	d, err := dag.Build(v1beta1.PipelineTaskList(pipelineSpec.Tasks), v1beta1.PipelineTaskList(pipelineSpec.Tasks).Deps())
 	if err != nil {
 		// This Run has failed, so we need to mark it as failed and stop reconciling it
@@ -1147,14 +1125,6 @@ func (c *Reconciler) makeConditionCheckContainer(ctx context.Context, rprt *reso
 	cctr, err := c.PipelineClientSet.TektonV1beta1().TaskRuns(pr.Namespace).Create(ctx, tr, metav1.CreateOptions{})
 	cc := v1beta1.ConditionCheck(*cctr)
 	return &cc, err
-}
-
-func storePipelineSpec(ctx context.Context, pr *v1beta1.PipelineRun, ps *v1beta1.PipelineSpec) error {
-	// Only store the PipelineSpec once, if it has never been set before.
-	if pr.Status.PipelineSpec == nil {
-		pr.Status.PipelineSpec = ps
-	}
-	return nil
 }
 
 func (c *Reconciler) updatePipelineRunStatusFromInformer(ctx context.Context, pr *v1beta1.PipelineRun) error {
