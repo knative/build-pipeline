@@ -20,12 +20,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	resource "github.com/tektoncd/pipeline/pkg/apis/resource/v1alpha1"
 	"github.com/tektoncd/pipeline/pkg/substitution"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"knative.dev/pkg/apis"
 )
+
+const ParamsPrefix = "params"
 
 // ParamSpec defines arbitrary parameters needed beyond typed inputs (such as
 // resources). Parameter values are provided by users as inputs on a TaskRun
@@ -145,25 +148,31 @@ func NewArrayOrString(value string, values ...string) *ArrayOrString {
 	}
 }
 
+// ArrayReference returns the name of the parameter from array parameter reference
+// returns arrayParam from $(params.arrayParam[*])
+func ArrayReference(a string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(a, "$("+ParamsPrefix+"."), "[*])")
+}
+
 func validatePipelineParametersVariablesInTaskParameters(params []Param, prefix string, paramNames sets.String, arrayParamNames sets.String) (errs *apis.FieldError) {
 	for _, param := range params {
 		if param.Value.Type == ParamTypeString {
-			errs = errs.Also(validateStringVariableInTaskParameters(param.Value.StringVal, prefix, paramNames, arrayParamNames).ViaFieldKey("params", param.Name))
+			errs = errs.Also(validateStringVariable(param.Value.StringVal, prefix, paramNames, arrayParamNames).ViaFieldKey("params", param.Name))
 		} else {
 			for idx, arrayElement := range param.Value.ArrayVal {
-				errs = errs.Also(validateArrayVariableInTaskParameters(arrayElement, prefix, paramNames, arrayParamNames).ViaFieldIndex("value", idx).ViaFieldKey("params", param.Name))
+				errs = errs.Also(validateArrayVariable(arrayElement, prefix, paramNames, arrayParamNames).ViaFieldIndex("value", idx).ViaFieldKey("params", param.Name))
 			}
 		}
 	}
 	return errs
 }
 
-func validateStringVariableInTaskParameters(value, prefix string, stringVars sets.String, arrayVars sets.String) *apis.FieldError {
+func validateStringVariable(value, prefix string, stringVars sets.String, arrayVars sets.String) *apis.FieldError {
 	errs := substitution.ValidateVariableP(value, prefix, stringVars)
 	return errs.Also(substitution.ValidateVariableProhibitedP(value, prefix, arrayVars))
 }
 
-func validateArrayVariableInTaskParameters(value, prefix string, stringVars sets.String, arrayVars sets.String) *apis.FieldError {
+func validateArrayVariable(value, prefix string, stringVars sets.String, arrayVars sets.String) *apis.FieldError {
 	errs := substitution.ValidateVariableP(value, prefix, stringVars)
 	return errs.Also(substitution.ValidateVariableIsolatedP(value, prefix, arrayVars))
 }

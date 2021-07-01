@@ -1262,6 +1262,22 @@ func TestValidatePipelineParameterVariables_Success(t *testing.T) {
 			}},
 		}},
 	}, {
+		name: "valid string parameter variables in input, array reference in values in when expression",
+		params: []ParamSpec{{
+			Name: "baz", Type: ParamTypeString,
+		}, {
+			Name: "foo", Type: ParamTypeArray, Default: &ArrayOrString{Type: ParamTypeArray, ArrayVal: []string{"anarray", "elements"}},
+		}},
+		tasks: []PipelineTask{{
+			Name:    "bar",
+			TaskRef: &TaskRef{Name: "bar-task"},
+			WhenExpressions: []WhenExpression{{
+				Input:    "$(params.baz)",
+				Operator: selection.In,
+				Values:   []string{"$(params.foo[*])"},
+			}},
+		}},
+	}, {
 		name: "valid array parameter variables",
 		params: []ParamSpec{{
 			Name: "baz", Type: ParamTypeArray, Default: &ArrayOrString{Type: ParamTypeArray, ArrayVal: []string{"some", "default"}},
@@ -1380,7 +1396,7 @@ func TestValidatePipelineParameterVariables_Failure(t *testing.T) {
 			Paths:   []string{"[0].when[0].input"},
 		},
 	}, {
-		name: "invalid string parameter variables in when expression, array reference in values",
+		name: "Invalid array parameter variable in when expression, array reference in input with array notation [*]",
 		params: []ParamSpec{{
 			Name: "foo", Type: ParamTypeArray, Default: &ArrayOrString{Type: ParamTypeArray, ArrayVal: []string{"anarray", "elements"}},
 		}},
@@ -1388,14 +1404,14 @@ func TestValidatePipelineParameterVariables_Failure(t *testing.T) {
 			Name:    "bar",
 			TaskRef: &TaskRef{Name: "bar-task"},
 			WhenExpressions: []WhenExpression{{
-				Input:    "bax",
+				Input:    "$(params.foo)[*]",
 				Operator: selection.In,
-				Values:   []string{"$(params.foo)"},
+				Values:   []string{"$(params.foo[*])"},
 			}},
 		}},
 		expectedError: apis.FieldError{
-			Message: `variable type invalid in "$(params.foo)"`,
-			Paths:   []string{"[0].when[0].values"},
+			Message: `variable type invalid in "$(params.foo)[*]"`,
+			Paths:   []string{"[0].when[0].input"},
 		},
 	}, {
 		name: "invalid pipeline task with a parameter combined with missing param from the param declarations",
