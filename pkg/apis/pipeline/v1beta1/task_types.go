@@ -141,6 +141,12 @@ type Step struct {
 	// not have access to it.
 	// +optional
 	Workspaces []WorkspaceUsage `json:"workspaces,omitempty"`
+
+	// OnError defines the exiting behavior of a container on error
+	// can be set to [ continue | fail ]
+	// fail indicates exit the taskRun if the container exits with non-zero exit code
+	// continue indicates continue executing the rest of the steps irrespective of the container exit code
+	OnError string `json:"onError,omitempty"`
 }
 
 // Sidecar has nearly the same data structure as Step, consisting of a Container and an optional Script, but does not have the ability to timeout.

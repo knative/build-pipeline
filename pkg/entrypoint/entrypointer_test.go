@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"reflect"
 	"testing"
 	"time"
@@ -119,9 +120,9 @@ func TestEntrypointerFailures(t *testing.T) {
 
 func TestEntrypointer(t *testing.T) {
 	for _, c := range []struct {
-		desc, entrypoint, postFile string
-		waitFiles, args            []string
-		breakpointOnFailure        bool
+		desc, entrypoint, postFile, stepPath, stepPathLink string
+		waitFiles, args                                    []string
+		breakpointOnFailure                                bool
 	}{{
 		desc: "do nothing",
 	}, {
@@ -150,6 +151,11 @@ func TestEntrypointer(t *testing.T) {
 	}, {
 		desc:                "breakpointOnFailure to wait or not to wait ",
 		breakpointOnFailure: true,
+	}, {
+		desc:         "create a step path",
+		entrypoint:   "echo",
+		stepPath:     "step-one",
+		stepPathLink: "0",
 	}} {
 		t.Run(c.desc, func(t *testing.T) {
 			fw, fr, fpw := &fakeWaiter{}, &fakeRunner{}, &fakePostWriter{}
@@ -165,6 +171,8 @@ func TestEntrypointer(t *testing.T) {
 				TerminationPath:     "termination",
 				Timeout:             &timeout,
 				BreakpointOnFailure: c.breakpointOnFailure,
+				StepPath:            c.stepPath,
+				StepPathLink:        c.stepPathLink,
 			}.Go()
 			if err != nil {
 				t.Fatalf("Entrypointer failed: %v", err)
@@ -227,6 +235,18 @@ func TestEntrypointer(t *testing.T) {
 			if err := os.Remove("termination"); err != nil {
 				t.Errorf("Could not remove termination path: %s", err)
 			}
+
+			if c.stepPath != "" {
+				if c.stepPath != *fpw.source {
+					t.Error("Wanted step path created, got nil")
+				}
+			}
+
+			if c.stepPathLink != "" {
+				if c.stepPathLink != *fpw.link {
+					t.Error("Wanted step path symbolic link created, got nil")
+				}
+			}
 		})
 	}
 }
@@ -250,6 +270,81 @@ func TestEntrypointer_ReadBreakpointExitCodeFromDisk(t *testing.T) {
 	}
 }
 
+func TestEntrypointer_OnError(t *testing.T) {
+	for _, c := range []struct {
+		desc, postFile, onError string
+		runner                  Runner
+		expectedError           bool
+	}{{
+		desc:          "the step is exiting with 1, ignore the step error with onError set to continue",
+		runner:        &fakeExitErrorRunner{},
+		postFile:      "step-one",
+		onError:       ContinueOnError,
+		expectedError: true,
+	}, {
+		desc:          "the step is exiting with 0, ignore the step error irrespective of no error with onError set to continue",
+		runner:        &fakeRunner{},
+		postFile:      "step-one",
+		onError:       ContinueOnError,
+		expectedError: false,
+	}, {
+		desc:          "the step is exiting with 1, treat the step error as failure with onError set to fail",
+		runner:        &fakeExitErrorRunner{},
+		expectedError: true,
+		postFile:      "step-one",
+		onError:       FailOnError,
+	}, {
+		desc:          "the step is exiting with 0, treat the step error (but there is none) as failure with onError set to fail",
+		runner:        &fakeRunner{},
+		postFile:      "step-one",
+		onError:       FailOnError,
+		expectedError: false,
+	}} {
+		t.Run(c.desc, func(t *testing.T) {
+			fpw := &fakePostWriter{}
+			err := Entrypointer{
+				Entrypoint:      "echo",
+				WaitFiles:       []string{},
+				PostFile:        c.postFile,
+				Args:            []string{"some", "args"},
+				Waiter:          &fakeWaiter{},
+				Runner:          c.runner,
+				PostWriter:      fpw,
+				TerminationPath: "termination",
+				OnError:         c.onError,
+			}.Go()
+
+			if c.expectedError && err == nil {
+				t.Fatalf("Entrypointer didn't fail")
+			}
+
+			if c.onError == ContinueOnError {
+				switch {
+				case fpw.wrote == nil:
+					t.Error("Wanted post file written, got nil")
+				case fpw.exitCodeFile == nil:
+					t.Error("Wanted exitCode file written, got nil")
+				case *fpw.wrote != c.postFile:
+					t.Errorf("Wrote post file %q, want %q", *fpw.wrote, c.postFile)
+				case *fpw.exitCodeFile != "exitCode":
+					t.Errorf("Wrote exitCode file %q, want %q", *fpw.exitCodeFile, "exitCode")
+				case c.expectedError && *fpw.exitCode == "0":
+					t.Errorf("Wrote zero exit code but want non-zero when expecting an error")
+				}
+			}
+
+			if c.onError == FailOnError {
+				switch {
+				case fpw.wrote == nil:
+					t.Error("Wanted post file written, got nil")
+				case c.expectedError && *fpw.wrote != c.postFile+".err":
+					t.Errorf("Wrote post file %q, want %q", *fpw.wrote, c.postFile+".err")
+				}
+			}
+		})
+	}
+}
+
 type fakeWaiter struct{ waited []string }
 
 func (f *fakeWaiter) Wait(file string, _ bool, _ bool) error {
@@ -264,9 +359,25 @@ func (f *fakeRunner) Run(ctx context.Context, args ...string) error {
 	return nil
 }
 
-type fakePostWriter struct{ wrote *string }
+type fakePostWriter struct {
+	wrote        *string
+	exitCodeFile *string
+	exitCode     *string
+	source       *string
+	link         *string
+}
 
 func (f *fakePostWriter) Write(file string) { f.wrote = &file }
+
+func (f *fakePostWriter) WriteFileContent(file, content string) {
+	f.exitCode = &content
+	f.exitCodeFile = &file
+}
+
+func (f *fakePostWriter) CreatePath(source, link string) {
+	f.source = &source
+	f.link = &link
+}
 
 type fakeErrorWaiter struct{ waited *string }
 
@@ -300,4 +411,11 @@ func (f *fakeTimeoutRunner) Run(ctx context.Context, args ...string) error {
 		return errors.New("context deadline should have been set because of a timeout")
 	}
 	return errors.New("runner failed")
+}
+
+type fakeExitErrorRunner struct{ args *[]string }
+
+func (f *fakeExitErrorRunner) Run(ctx context.Context, args ...string) error {
+	f.args = &args
+	return exec.Command("ls", "/bogus/path").Run()
 }

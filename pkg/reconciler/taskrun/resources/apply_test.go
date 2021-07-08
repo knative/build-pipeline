@@ -1177,6 +1177,38 @@ func TestTaskResults(t *testing.T) {
 	}
 }
 
+func TestApplyStepExitCodePath(t *testing.T) {
+	names.TestingSeed()
+	ts := &v1beta1.TaskSpec{
+		Steps: []v1beta1.Step{{
+			Container: corev1.Container{
+				Image: "bash:latest",
+			},
+			Script: "#!/usr/bin/env bash\nexit 11",
+		}, {
+			Container: corev1.Container{
+				Name:  "failing-step",
+				Image: "bash:latest",
+			},
+			Script: "#!/usr/bin/env bash\ncat $(steps.step-unnamed-0.exitCode.path)",
+		}, {
+			Container: corev1.Container{
+				Name:  "check-failing-step",
+				Image: "bash:latest",
+			},
+			Script: "#!/usr/bin/env bash\ncat $(steps.step-failing-step.exitCode.path)",
+		}},
+	}
+	expected := applyMutation(ts, func(spec *v1beta1.TaskSpec) {
+		spec.Steps[1].Script = "#!/usr/bin/env bash\ncat /tekton/steps/step-unnamed-0/exitCode"
+		spec.Steps[2].Script = "#!/usr/bin/env bash\ncat /tekton/steps/step-failing-step/exitCode"
+	})
+	got := resources.ApplyStepExitCodePath(ts)
+	if d := cmp.Diff(expected, got); d != "" {
+		t.Errorf("ApplyStepExitCodePath() got diff %s", diff.PrintWantGot(d))
+	}
+}
+
 func TestApplyCredentialsPath(t *testing.T) {
 	for _, tc := range []struct {
 		description string

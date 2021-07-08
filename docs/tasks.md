@@ -13,6 +13,8 @@ weight: 200
     - [Reserved directories](#reserved-directories)
     - [Running scripts within `Steps`](#running-scripts-within-steps)
     - [Specifying a timeout](#specifying-a-timeout)
+    - [Specifying `onError` for a `step`](#specifying-onerror-for-a-step)
+    - [Accessing Step's `exitCode` in subsequent `Steps`](#accessing-steps-exitcode-in-subsequent-steps)
   - [Specifying `Parameters`](#specifying-parameters)
   - [Specifying `Resources`](#specifying-resources)
   - [Specifying `Workspaces`](#specifying-workspaces)
@@ -282,6 +284,90 @@ steps:
       sleep 60
     timeout: 5s
 ``` 
+
+#### Specifying `onError` for a `step`
+
+This is an alpha feature. The `enable-api-fields` feature flag [must be set to `"alpha"`](./install.md)
+to specify `onError` for a `step`.
+
+When a `step` in a `task` results in a failure, the rest of the steps in the `task` are skipped and the `taskRun` is
+declared a failure. If you would like to ignore such step errors and continue executing the rest of the steps in
+the task, you can specify `onError` for such a `step`.
+
+`onError` can be set to either `continue` or `fail` as part of the step definition. If `onError` is
+set to `continue`, the entrypoint sets the original failed exit code of the [script](#running-scripts-within-steps)
+in the container terminated state. A `step` with `onError` set to `continue` does not fail the `taskRun` and continues
+executing the rest of the steps in a task.
+
+To ignore a step error, set `onError` to `continue`:
+
+```yaml
+steps:
+  - image: docker.io/library/golang:latest
+    name: ignore-unit-test-failure
+    onError: continue
+    script: |
+      go test .
+```
+
+The original failed exit code of the [script](#running-scripts-within-steps) is available in the terminated state of
+the container.
+
+```
+kubectl get tr taskrun-unit-test-t6qcl -o json | jq .status
+{
+  "conditions": [
+    {
+      "message": "All Steps have completed executing",
+      "reason": "Succeeded",
+      "status": "True",
+      "type": "Succeeded"
+    }
+  ],
+  "steps": [
+    {
+      "container": "step-ignore-unit-test-failure",
+      "imageID": "...",
+      "name": "ignore-unit-test-failure",
+      "terminated": {
+        "containerID": "...",
+        "exitCode": 1,
+        "reason": "Completed",
+      }
+    },
+  ],
+```
+
+For an end-to-end example, see [the taskRun ignoring a step error](../examples/v1beta1/taskruns/alpha/ignore-step-error.yaml)
+and [the pipelineRun ignoring a step error](../examples/v1beta1/pipelineruns/alpha/ignore-step-error.yaml).
+
+#### Accessing Step's `exitCode` in subsequent `Steps`
+
+A step can access the exit code of any previous step using the `path` similar to a task result, for example:
+
+```shell
+$(steps.step-<step-name>.exitCode.path)
+```
+
+The `exitCode` of a step without any name can be referenced using:
+
+```shell
+$(steps.step-unnamed-<step-index>.exitCode.path)
+```
+
+If you would like to use the tekton internal path, you can access the exit code by reading the file
+(which is not recommended though since the path might change in the future):
+
+```shell
+cat /tekton/steps/step-<step-name>/exitCode
+```
+
+And, access the step exit code without a step name:
+
+```shell
+cat /tekton/steps/step-unnamed-<step-index>/exitCode
+```
+
 ### Specifying `Parameters`
 
 You can specify parameters, such as compilation flags or artifact names, that you want to supply to the `Task` at execution time.

@@ -86,3 +86,10 @@ func StepScript(script string) StepOp {
 		step.Script = script
 	}
 }
+
+// StepOnError sets the onError of a step
+func StepOnError(e string) StepOp {
+	return func(step *v1beta1.Step) {
+		step.OnError = e
+	}
+}

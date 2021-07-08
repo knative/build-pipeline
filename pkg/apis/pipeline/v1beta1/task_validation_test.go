@@ -1135,6 +1135,68 @@ func TestStepAndSidecarWorkspacesErrors(t *testing.T) {
 	}
 }
 
+func TestStepOnError(t *testing.T) {
+	tests := []struct {
+		name          string
+		steps         []v1beta1.Step
+		expectedError *apis.FieldError
+	}{{
+		name: "valid step - valid onError usage - set to continue - alpha API",
+		steps: []v1beta1.Step{{
+			OnError: "continue",
+			Container: corev1.Container{
+				Image: "image",
+				Args:  []string{"arg"},
+			},
+		}},
+	}, {
+		name: "valid step - valid onError usage - set to fail - alpha API",
+		steps: []v1beta1.Step{{
+			OnError: "fail",
+			Container: corev1.Container{
+				Image: "image",
+				Args:  []string{"arg"},
+			},
+		}},
+	}, {
+		name: "invalid step - onError set to invalid value - alpha API",
+		steps: []v1beta1.Step{{
+			OnError: "onError",
+			Container: corev1.Container{
+				Image: "image",
+				Args:  []string{"arg"},
+			},
+		}},
+		expectedError: &apis.FieldError{
+			Message: fmt.Sprintf("invalid value: onError"),
+			Paths:   []string{"onError"},
+			Details: "Task step onError must be either continue or fail",
+		},
+	}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := &v1beta1.TaskSpec{
+				Steps: tt.steps,
+			}
+			featureFlags, _ := config.NewFeatureFlagsFromMap(map[string]string{
+				"enable-api-fields": "alpha",
+			})
+			cfg := &config.Config{
+				FeatureFlags: featureFlags,
+			}
+			ctx := config.ToContext(context.Background(), cfg)
+			ts.SetDefaults(ctx)
+			err := ts.Validate(ctx)
+			if tt.expectedError == nil && err != nil {
+				t.Errorf("TaskSpec.Validate() = %v", err)
+			} else if tt.expectedError != nil && err == nil {
+				t.Errorf("TaskSpec.Validate() = %v", err)
+			}
+		})
+	}
+
+}
+
 // TestIncompatibleAPIVersions exercises validation of fields that
 // require a specific feature gate version in order to work.
 func TestIncompatibleAPIVersions(t *testing.T) {
@@ -1177,6 +1239,18 @@ func TestIncompatibleAPIVersions(t *testing.T) {
 				Workspaces: []v1beta1.WorkspaceUsage{{
 					Name: "foo",
 				}},
+			}},
+		},
+	}, {
+		name:            "step onError requires alpha",
+		requiredVersion: "alpha",
+		spec: v1beta1.TaskSpec{
+			Steps: []v1beta1.Step{{
+				OnError: "continue",
+				Container: corev1.Container{
+					Image: "image",
+					Args:  []string{"arg"},
+				},
 			}},
 		},
 	}}

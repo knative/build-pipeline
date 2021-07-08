@@ -25,6 +25,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
+
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	"gomodules.xyz/jsonpatch/v2"
 	corev1 "k8s.io/api/core/v1"
@@ -113,6 +115,7 @@ func orderContainers(entrypointImage string, commonExtraEntrypointArgs []string,
 
 	for i, s := range steps {
 		var argsForEntrypoint []string
+		name := StepName(steps[i].Name, i)
 		switch i {
 		case 0:
 			argsForEntrypoint = []string{
@@ -122,6 +125,8 @@ func orderContainers(entrypointImage string, commonExtraEntrypointArgs []string,
 				// Start next step.
 				"-post_file", filepath.Join(mountPoint, fmt.Sprintf("%d", i)),
 				"-termination_path", terminationPath,
+				"-step_path", filepath.Join(pipeline.StepsPath, name),
+				"-step_path_link", filepath.Join(pipeline.StepsPath, fmt.Sprintf("%d", i)),
 			}
 		default:
 			// All other steps wait for previous file, write next file.
@@ -129,12 +134,19 @@ func orderContainers(entrypointImage string, commonExtraEntrypointArgs []string,
 				"-wait_file", filepath.Join(mountPoint, fmt.Sprintf("%d", i-1)),
 				"-post_file", filepath.Join(mountPoint, fmt.Sprintf("%d", i)),
 				"-termination_path", terminationPath,
+				"-step_path", filepath.Join(pipeline.StepsPath, name),
+				"-step_path_link", filepath.Join(pipeline.StepsPath, fmt.Sprintf("%d", i)),
 			}
 		}
 		argsForEntrypoint = append(argsForEntrypoint, commonExtraEntrypointArgs...)
 		if taskSpec != nil {
-			if taskSpec.Steps != nil && len(taskSpec.Steps) >= i+1 && taskSpec.Steps[i].Timeout != nil {
-				argsForEntrypoint = append(argsForEntrypoint, "-timeout", taskSpec.Steps[i].Timeout.Duration.String())
+			if taskSpec.Steps != nil && len(taskSpec.Steps) >= i+1 {
+				if taskSpec.Steps[i].Timeout != nil {
+					argsForEntrypoint = append(argsForEntrypoint, "-timeout", taskSpec.Steps[i].Timeout.Duration.String())
+				}
+				if taskSpec.Steps[i].OnError != "" {
+					argsForEntrypoint = append(argsForEntrypoint, "-on_error", taskSpec.Steps[i].OnError)
+				}
 			}
 			argsForEntrypoint = append(argsForEntrypoint, resultArgument(steps, taskSpec.Results)...)
 		}
@@ -274,3 +286,12 @@ func trimStepPrefix(name string) string { return strings.TrimPrefix(name, stepPr
 // TrimSidecarPrefix returns the container name, stripped of its sidecar
 // prefix.
 func TrimSidecarPrefix(name string) string { return strings.TrimPrefix(name, sidecarPrefix) }
+
+// StepName returns the step name after adding "step-" prefix to the actual step name or
+// returns "step-unnamed-<step-index>" if not specified
+func StepName(name string, i int) string {
+	if name != "" {
+		return fmt.Sprintf("%s%s", stepPrefix, name)
+	}
+	return fmt.Sprintf("%sunnamed-%d", stepPrefix, i)
+}
