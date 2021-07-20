@@ -278,6 +278,8 @@ func TestGitPipelineRunFail(t *testing.T) {
 						}
 					}
 				}
+			} else {
+				t.Fatalf("PipelineRun succeeded when should have failed")
 			}
 		})
 	}
