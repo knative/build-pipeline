@@ -185,10 +185,10 @@ spec:
 
 There are several directories that all `Tasks` run by Tekton will treat as special
 
-* `/workspace` - This directory is where [resources](#resources) and [workspaces](#workspaces)
+* `/workspace` - This directory is where [resources](#specifying-resources) and [workspaces](#specifying-workspaces)
   are mounted. Paths to these are available to `Task` authors via [variable substitution](variables.md)
 * `/tekton` - This directory is used for Tekton specific functionality:
-    * `/tekton/results` is where [results](#results) are written to.
+    * `/tekton/results` is where [results](#emitting-results) are written to.
       The path is available to `Task` authors via [`$(results.name.path)`](variables.md)
     * There are other subfolders which are [implementation details of Tekton](developers/README.md#reserved-directories)
       and **users should not rely on their specific behavior as it may change in the future**
