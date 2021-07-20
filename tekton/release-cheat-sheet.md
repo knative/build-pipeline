@@ -159,6 +159,24 @@ the pipelines repo, a terminal window and a text editor.
 1. Update [the catalog repo](https://github.com/tektoncd/catalog) test infrastructure
 to use the new release by updating the `RELEASE_YAML` link in [e2e-tests.sh](https://github.com/tektoncd/catalog/blob/master/test/e2e-tests.sh).
 
+1. Update the docs on the website with the latest version released:
+
+    ```bash
+    # From the website repo root, clean and up to date
+    # Update the config
+    cd sync
+    python3 -m venv .venv
+    source .venv/bin/activate    
+    pip3 install -r requirements.txt
+    ./versions.py add -p pipeline [version]
+
+    # Stage, commit and push the change
+    git checkout -b pipeline_vXYZ_docs
+    git add -u
+    git commit -m "Pipeline docs vXYZ"
+    git push [fork remote] pipeline_vXYZ_docs
+    ```
+
 Congratulations, you're done!
 
 ## Setup dogfooding context
@@ -174,7 +192,7 @@ Congratulations, you're done!
    a short memorable name such as `dogfooding`:
 
    ```bash
-   kubectl config rename-context gke_tekton-releases_us-central1-a_dogfooding dogfoodin
+   kubectl config rename-context gke_tekton-releases_us-central1-a_dogfooding dogfooding
    ```
 
 1. **Important: Switch `kubectl` back to your own cluster by default.**
