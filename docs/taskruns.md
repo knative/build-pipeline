@@ -719,12 +719,14 @@ spec:
   resources:
     inputs:
       - name: workspace
-        type: git
-  steps:
-    - name: config
-      image: ubuntu
-      command: ["/bin/bash"]
-      args: ["-c", "cat README.md"]
+        resourceSpec:
+          type: git
+  taskSpec:
+    steps:
+      - name: config
+        image: ubuntu
+        command: ["/bin/bash"]
+        args: ["-c", "cat README.md"]
 ```
 
 In the above code snippet, `serviceAccountName: test-build-robot-git-ssh` references the following
