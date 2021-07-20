@@ -139,6 +139,11 @@ func affinityAssistantStatefulSet(name string, pr *v1beta1.PipelineRun, claimNam
 		nodeSelector = pr.Spec.PodTemplate.NodeSelector
 	}
 
+	serviceAccount := "default"
+	if pr.Spec.ServiceAccountName != "" {
+		serviceAccount = pr.Spec.ServiceAccountName
+	}
+
 	containers := []corev1.Container{{
 		Name:  "affinity-assistant",
 		Image: affinityAssistantImage,
@@ -192,9 +197,10 @@ func affinityAssistantStatefulSet(name string, pr *v1beta1.PipelineRun, claimNam
 					Labels: getStatefulSetLabels(pr, name),
 				},
 				Spec: corev1.PodSpec{
-					Containers:   containers,
-					Tolerations:  tolerations,
-					NodeSelector: nodeSelector,
+					Containers:         containers,
+					Tolerations:        tolerations,
+					NodeSelector:       nodeSelector,
+					ServiceAccountName: serviceAccount,
 					Affinity: &corev1.Affinity{
 						PodAntiAffinity: &corev1.PodAntiAffinity{
 							PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{repelOtherAffinityAssistantsPodAffinityTerm},

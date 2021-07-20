@@ -117,6 +117,24 @@ func TestThatCustomTolerationsAndNodeSelectorArePropagatedToAffinityAssistant(t 
 	}
 }
 
+func TestThatCustomServiceAccountIsPropagatedToAffinityAssistant(t *testing.T) {
+	prWithCustomPodTemplate := &v1beta1.PipelineRun{
+		TypeMeta: metav1.TypeMeta{Kind: "PipelineRun"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "pipelinerun-with-custom-podtemplate",
+		},
+		Spec: v1beta1.PipelineRunSpec{
+			ServiceAccountName: "test-service-account",
+			PodTemplate:        &pod.Template{},
+		},
+	}
+
+	stsWithServiceAccount := affinityAssistantStatefulSet("test-assistant", prWithCustomPodTemplate, "mypvc", "nginx")
+	if stsWithServiceAccount.Spec.Template.Spec.ServiceAccountName != "test-service-account" {
+		t.Errorf("expected non-default ServiceAccountName in the StatefulSet")
+	}
+}
+
 func TestThatTheAffinityAssistantIsWithoutNodeSelectorAndTolerations(t *testing.T) {
 	prWithoutCustomPodTemplate := &v1beta1.PipelineRun{
 		TypeMeta: metav1.TypeMeta{Kind: "PipelineRun"},
