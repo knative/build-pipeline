@@ -27,21 +27,21 @@ weight: 400
   - [Configuring the `Task` execution order](#configuring-the-task-execution-order)
   - [Adding a description](#adding-a-description)
   - [Adding `Finally` to the `Pipeline`](#adding-finally-to-the-pipeline)
-    - [Specifying `Workspaces` in Final Tasks](#specifying-workspaces-in-final-tasks)
-    - [Specifying `Parameters` in Final Tasks](#specifying-parameters-in-final-tasks)
+    - [Specifying `Workspaces` in `finally` tasks](#specifying-workspaces-in-finally-tasks)
+    - [Specifying `Parameters` in `finally` tasks](#specifying-parameters-in-finally-tasks)
     - [Consuming `Task` execution results in `finally`](#consuming-task-execution-results-in-finally)
     - [`PipelineRun` Status with `finally`](#pipelinerun-status-with-finally)
     - [Using Execution `Status` of `pipelineTask`](#using-execution-status-of-pipelinetask)
     - [Using Aggregate Execution `Status` of All `Tasks`](#using-aggregate-execution-status-of-all-tasks)
-    - [Guard `Finally Task` execution using `WhenExpressions`](#guard-finally-task-execution-using-whenexpressions)
-      - [`WhenExpressions` using `Parameters` in `Finally Tasks`](#whenexpressions-using-parameters-in-finally-tasks)
-      - [`WhenExpressions` using `Results` in `Finally Tasks`](#whenexpressions-using-results-in-finally-tasks)
-      - [`WhenExpressions` using `Execution Status` of `PipelineTask` in `Finally Tasks`](#whenexpressions-using-execution-status-of-pipelinetask-in-finally-tasks)
-      - [`WhenExpressions` using `Aggregate Execution Status` of `Tasks` in `Finally Tasks`](#whenexpressions-using-aggregate-execution-status-of-tasks-in-finally-tasks)
+    - [Guard ``finally` task` execution using `WhenExpressions`](#guard-finally-task-execution-using-whenexpressions)
+      - [`WhenExpressions` using `Parameters` in ``finally` tasks`](#whenexpressions-using-parameters-in-finally-tasks)
+      - [`WhenExpressions` using `Results` in ``finally` tasks`](#whenexpressions-using-results-in-finally-tasks)
+      - [`WhenExpressions` using `Execution Status` of `PipelineTask` in ``finally` tasks`](#whenexpressions-using-execution-status-of-pipelinetask-in-finally-tasks)
+      - [`WhenExpressions` using `Aggregate Execution Status` of `Tasks` in ``finally` tasks`](#whenexpressions-using-aggregate-execution-status-of-tasks-in-finally-tasks)
     - [Known Limitations](#known-limitations)
-      - [Specifying `Resources` in Final Tasks](#specifying-resources-in-final-tasks)
-      - [Cannot configure the Final Task execution order](#cannot-configure-the-final-task-execution-order)
-      - [Cannot specify execution `Conditions` in Final Tasks](#cannot-specify-execution-conditions-in-final-tasks)
+      - [Specifying `Resources` in `finally` tasks](#specifying-resources-in-finally-tasks)
+      - [Cannot configure the `finally` task execution order](#cannot-configure-the-finally-task-execution-order)
+      - [Cannot specify execution `Conditions` in `finally` tasks](#cannot-specify-execution-conditions-in-finally-tasks)
       - [Cannot configure `Pipeline` result with `finally`](#cannot-configure-pipeline-result-with-finally)
   - [Using Custom Tasks](#using-custom-tasks)
     - [Specifying the target Custom Task](#specifying-the-target-custom-task)
@@ -783,9 +783,9 @@ The `description` field is an optional field and can be used to provide descript
 
 ## Adding `Finally` to the `Pipeline`
 
-You can specify a list of one or more final tasks under `finally` section. Final tasks are guaranteed to be executed
-in parallel after all `PipelineTasks` under `tasks` have completed regardless of success or error. Final tasks are very
-similar to `PipelineTasks` under `tasks` section and follow the same syntax. Each final task must have a
+You can specify a list of one or more final tasks under `finally` section. `finally` tasks are guaranteed to be executed
+in parallel after all `PipelineTasks` under `tasks` have completed regardless of success or error. `finally` tasks are very
+similar to `PipelineTasks` under `tasks` section and follow the same syntax. Each `finally` task must have a
 [valid](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names) `name` and a [taskRef or
 taskSpec](taskruns.md#specifying-the-target-task). For example:
 
@@ -801,11 +801,11 @@ spec:
         name: cleanup
 ```
 
-### Specifying `Workspaces` in Final Tasks
+### Specifying `Workspaces` in `finally` tasks
 
-Finally tasks can specify [workspaces](workspaces.md) which `PipelineTasks` might have utilized
+`finally` tasks can specify [workspaces](workspaces.md) which `PipelineTasks` might have utilized
 e.g. a mount point for credentials held in Secrets. To support that requirement, you can specify one or more
-`Workspaces` in the `workspaces` field for the final tasks similar to `tasks`.
+`Workspaces` in the `workspaces` field for the `finally` tasks similar to `tasks`.
 
 ```yaml
 spec:
@@ -834,9 +834,9 @@ spec:
           workspace: shared-workspace
 ```
 
-### Specifying `Parameters` in Final Tasks
+### Specifying `Parameters` in `finally` tasks
 
-Similar to `tasks`, you can specify [`Parameters`](tasks.md#specifying-parameters) in final tasks:
+Similar to `tasks`, you can specify [`Parameters`](tasks.md#specifying-parameters) in `finally` tasks:
 
 ```yaml
 spec:
@@ -855,7 +855,7 @@ spec:
 
 ### Consuming `Task` execution results in `finally`
 
-Final tasks can be configured to consume `Results` of `PipelineTask` from the `tasks` section:
+`finally` tasks can be configured to consume `Results` of `PipelineTask` from the `tasks` section:
 
 ```yaml
 spec:
@@ -869,19 +869,19 @@ spec:
         - name: commit
           value: $(tasks.clone-app-repo.results.commit)
 ```
-**Note:** The scheduling of such final task does not change, it will still be executed in parallel with other
-final tasks after all non-final tasks are done.
+**Note:** The scheduling of such `finally` task does not change, it will still be executed in parallel with other
+`finally` tasks after all non-`finally` tasks are done.
 
-The controller resolves task results before executing the finally task `discover-git-commit`. If the task
+The controller resolves task results before executing the `finally` task `discover-git-commit`. If the task
 `clone-app-repo` failed or skipped with [when expression](#guard-task-execution-using-whenexpressions) resulting in
-uninitialized task result `commit`, the finally Task `discover-git-commit` will be included in the list of
-`skippedTasks` and continues executing rest of the final tasks. The pipeline exits with `completion` instead of
-`success` if a finally task is added to the list of `skippedTasks`.
+uninitialized task result `commit`, the `finally` task `discover-git-commit` will be included in the list of
+`skippedTasks` and continues executing rest of the `finally` tasks. The pipeline exits with `completion` instead of
+`success` if a `finally` task is added to the list of `skippedTasks`.
 
 
 ### `PipelineRun` Status with `finally`
 
-With `finally`, `PipelineRun` status is calculated based on `PipelineTasks` under `tasks` section and final tasks.
+With `finally`, `PipelineRun` status is calculated based on `PipelineTasks` under `tasks` section and `finally` tasks.
 
 Without `finally`:
 
@@ -893,20 +893,20 @@ Without `finally`:
 
 With `finally`:
 
-| `PipelineTasks` under `tasks` | Final Tasks | `PipelineRun` status | Reason |
+| `PipelineTasks` under `tasks` | `finally` tasks | `PipelineRun` status | Reason |
 | ----------------------------- | ----------- | -------------------- | ------ |
-| all `PipelineTask` successful | all final tasks successful | `true` | `Succeeded` |
-| all `PipelineTask` successful | one or more failure of final tasks | `false` | `Failed` |
-| one or more `PipelineTask` [skipped](conditions.md) and rest successful | all final tasks successful | `true` | `Completed` |
-| one or more `PipelineTask` [skipped](conditions.md) and rest successful | one or more failure of final tasks | `false` | `Failed` |
-| single failure of `PipelineTask` | all final tasks successful | `false` | `failed` |
-| single failure of `PipelineTask` | one or more failure of final tasks | `false` | `failed` |
+| all `PipelineTask` successful | all `finally` tasks successful | `true` | `Succeeded` |
+| all `PipelineTask` successful | one or more failure of `finally` tasks | `false` | `Failed` |
+| one or more `PipelineTask` [skipped](conditions.md) and rest successful | all `finally` tasks successful | `true` | `Completed` |
+| one or more `PipelineTask` [skipped](conditions.md) and rest successful | one or more failure of `finally` tasks | `false` | `Failed` |
+| single failure of `PipelineTask` | all `finally` tasks successful | `false` | `failed` |
+| single failure of `PipelineTask` | one or more failure of `finally` tasks | `false` | `failed` |
 
 Overall, `PipelineRun` state transitioning is explained below for respective scenarios:
 
-* All `PipelineTask` and final tasks are successful: `Started` -> `Running` -> `Succeeded`
+* All `PipelineTask` and `finally` tasks are successful: `Started` -> `Running` -> `Succeeded`
 * At least one `PipelineTask` skipped and rest successful:  `Started` -> `Running` -> `Completed`
-* One `PipelineTask` failed / one or more final tasks failed: `Started` -> `Running` -> `Failed`
+* One `PipelineTask` failed / one or more `finally` tasks failed: `Started` -> `Running` -> `Failed`
 
 Please refer to the [table](pipelineruns.md#monitoring-execution-status) under Monitoring Execution Status to learn about
 what kind of events are triggered based on the `Pipelinerun` status.
@@ -980,16 +980,16 @@ This kind of variable can have any one of the values from the following table:
 
 For an end-to-end example, see [`$(tasks.status)` usage in a `Pipeline`](../examples/v1beta1/pipelineruns/pipelinerun-task-execution-status.yaml).
 
-### Guard `Finally Task` execution using `WhenExpressions`
+### Guard ``finally` task` execution using `WhenExpressions`
 
-Similar to `Tasks`, `Finally Tasks` can be guarded using [`WhenExpressions`](#guard-task-execution-using-whenexpressions)
-that operate on static inputs or variables. Like in `Tasks`, `WhenExpressions` in `Finally Tasks` can operate on
-`Parameters` and `Results`. Unlike in `Tasks`, `WhenExpressions` in `Finally Tasks` can also operate on the [`Execution
+Similar to `Tasks`, ``finally` tasks` can be guarded using [`WhenExpressions`](#guard-task-execution-using-whenexpressions)
+that operate on static inputs or variables. Like in `Tasks`, `WhenExpressions` in ``finally` tasks` can operate on
+`Parameters` and `Results`. Unlike in `Tasks`, `WhenExpressions` in ``finally` tasks` can also operate on the [`Execution
 Status`](#using-execution-status-of-pipelinetask) of `Tasks`.
 
-#### `WhenExpressions` using `Parameters` in `Finally Tasks`
+#### `WhenExpressions` using `Parameters` in ``finally` tasks`
 
-`WhenExpressions` in `Finally Tasks` can utilize `Parameters` as demonstrated using [`golang-build`](https://github.com/tektoncd/catalog/tree/main/task/golang-build/0.1)
+`WhenExpressions` in ``finally` tasks` can utilize `Parameters` as demonstrated using [`golang-build`](https://github.com/tektoncd/catalog/tree/main/task/golang-build/0.1)
 and [`send-to-channel-slack`](https://github.com/tektoncd/catalog/tree/main/task/send-to-channel-slack/0.1) Catalog
 `Tasks`:
 
@@ -1026,9 +1026,9 @@ spec:
       value: true
 ```
 
-#### `WhenExpressions` using `Results` in `Finally Tasks`
+#### `WhenExpressions` using `Results` in ``finally` tasks`
 
-`WhenExpressions` in `Finally Tasks` can utilize `Results`, as demonstrated using [`git-clone`](https://github.com/tektoncd/catalog/tree/main/task/git-clone/0.2)
+`WhenExpressions` in ``finally` tasks` can utilize `Results`, as demonstrated using [`git-clone`](https://github.com/tektoncd/catalog/tree/main/task/git-clone/0.2)
 and [`github-add-comment`](https://github.com/tektoncd/catalog/tree/main/task/github-add-comment/0.2) Catalog `Tasks`:
 
 ```yaml
@@ -1058,13 +1058,13 @@ spec:
       value: 54dd3984affab47f3018852e61a1a6f9946ecfa
 ```
 
-If the `WhenExpressions` in a `Finally Task` use `Results` from a skipped or failed non-finally `Tasks`, then the
-`Finally Task` would also be skipped and be included in the list of `Skipped Tasks` in the `Status`, [similarly to when using
-`Results` in other parts of the `Finally Task`](#consuming-task-execution-results-in-finally).
+If the `WhenExpressions` in a ``finally` task` use `Results` from a skipped or failed non-finally `Tasks`, then the
+``finally` task` would also be skipped and be included in the list of `Skipped Tasks` in the `Status`, [similarly to when using
+`Results` in other parts of the ``finally` task`](#consuming-task-execution-results-in-finally).
 
-#### `WhenExpressions` using `Execution Status` of `PipelineTask` in `Finally Tasks`
+#### `WhenExpressions` using `Execution Status` of `PipelineTask` in ``finally` tasks`
 
-`WhenExpressions` in `Finally Tasks` can utilize [`Execution Status` of `PipelineTasks`](#using-execution-status-of-pipelinetask),
+`WhenExpressions` in ``finally` tasks` can utilize [`Execution Status` of `PipelineTasks`](#using-execution-status-of-pipelinetask),
 as demonstrated using [`golang-build`](https://github.com/tektoncd/catalog/tree/main/task/golang-build/0.1) and
 [`send-to-channel-slack`](https://github.com/tektoncd/catalog/tree/main/task/send-to-channel-slack/0.1) Catalog `Tasks`:
 
@@ -1093,9 +1093,9 @@ spec:
 
 For an end-to-end example, see [PipelineRun with WhenExpressions](../examples/v1beta1/pipelineruns/pipelinerun-with-when-expressions.yaml).
 
-#### `WhenExpressions` using `Aggregate Execution Status` of `Tasks` in `Finally Tasks`
+#### `WhenExpressions` using `Aggregate Execution Status` of `Tasks` in ``finally` tasks`
 
-`WhenExpressions` in `Finally Tasks` can utilize
+`WhenExpressions` in ``finally` tasks` can utilize
 [`Aggregate Execution Status` of `Tasks`](#using-aggregate-execution-status-of-all-tasks) as demonstrated:
 
 ```yaml
@@ -1113,11 +1113,11 @@ For an end-to-end example, see [PipelineRun with WhenExpressions](../examples/v1
 
 ### Known Limitations
 
-#### Specifying `Resources` in Final Tasks
+#### Specifying `Resources` in `finally` tasks
 
 Similar to `tasks`, you can use [PipelineResources](#specifying-resources) as inputs and outputs for
-final tasks in the Pipeline. The only difference here is, final tasks with an input resource can not have a `from` clause
-like a `PipelineTask` from `tasks` section. For example:
+`finally` tasks in the Pipeline. The only difference here is, final tasks with an input resource can not have a `from`
+clause like a `PipelineTask` from `tasks` section. For example:
 
 ```yaml
 spec:
@@ -1144,21 +1144,21 @@ spec:
               - tests
 ```
 
-#### Cannot configure the Final Task execution order
+#### Cannot configure the `finally` task execution order
 
-It's not possible to configure or modify the execution order of the final tasks. Unlike `Tasks` in a `Pipeline`,
-all final tasks run simultaneously and start executing once all `PipelineTasks` under `tasks` have settled which means
-no `runAfter` can be specified in final tasks.
+It's not possible to configure or modify the execution order of the `finally` tasks. Unlike `Tasks` in a `Pipeline`,
+all `finally` tasks run simultaneously and start executing once all `PipelineTasks` under `tasks` have settled which means
+no `runAfter` can be specified in `finally` tasks.
 
-#### Cannot specify execution `Conditions` in Final Tasks
+#### Cannot specify execution `Conditions` in `finally` tasks
 
 `Tasks` in a `Pipeline` can be configured to run only if some conditions are satisfied using `conditions`. But the
-final tasks are guaranteed to be executed after all `PipelineTasks` therefore no `conditions` can be specified in
-final tasks.
+`finally` tasks are guaranteed to be executed after all `PipelineTasks` therefore no `conditions` can be specified in
+`finally` tasks.
 
 #### Cannot configure `Pipeline` result with `finally`
 
-Final tasks can emit `Results` but results emitted from the final tasks can not be configured in the
+`finally` tasks can emit `Results` but results emitted from the `finally` tasks can not be configured in the
 [Pipeline Results](#configuring-execution-results-at-the-pipeline-level). We are working on adding support for this
 (tracked in issue [#2710](https://github.com/tektoncd/pipeline/issues/2710)).
 
