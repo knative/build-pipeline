@@ -350,8 +350,14 @@ kubectl get pods -n tekton-pipelines
 You can clean up everything with:
 
 ```shell
+# If you should not delete the namespace of a pipeline component
 ko delete -f config/
+
+# If you also can delete the namespace of a pipeline component
+ko delete -R -f config/
 ```
+
+**Note:** If you use a pipeline component in the same namespace as other components such as dashboard or triggers, executing `ko delete -R -f config/` deletes these other components too.
 
 #### Redeploy controller
 
