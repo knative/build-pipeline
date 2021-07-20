@@ -58,7 +58,7 @@ func (ts *TaskSpec) Validate(ctx context.Context) (errs *apis.FieldError) {
 		})
 	}
 
-	errs = errs.Also(validateSteps(mergedSteps).ViaField("steps"))
+	errs = errs.Also(validateSteps(ctx, mergedSteps).ViaField("steps"))
 	errs = errs.Also(ts.Resources.Validate(ctx).ViaField("resources"))
 	errs = errs.Also(ValidateParameterTypes(ts.Params).ViaField("params"))
 	errs = errs.Also(ValidateParameterVariables(ts.Steps, ts.Params))
@@ -168,16 +168,16 @@ func ValidateVolumes(volumes []corev1.Volume) (errs *apis.FieldError) {
 	return errs
 }
 
-func validateSteps(steps []Step) (errs *apis.FieldError) {
+func validateSteps(ctx context.Context, steps []Step) (errs *apis.FieldError) {
 	// Task must not have duplicate step names.
 	names := sets.NewString()
 	for idx, s := range steps {
-		errs = errs.Also(validateStep(s, names).ViaIndex(idx))
+		errs = errs.Also(validateStep(ctx, s, names).ViaIndex(idx))
 	}
 	return errs
 }
 
-func validateStep(s Step, names sets.String) (errs *apis.FieldError) {
+func validateStep(ctx context.Context, s Step, names sets.String) (errs *apis.FieldError) {
 	if s.Image == "" {
 		errs = errs.Also(apis.ErrMissingField("Image"))
 	}
@@ -218,6 +218,17 @@ func validateStep(s Step, names sets.String) (errs *apis.FieldError) {
 		}
 		if strings.HasPrefix(vm.Name, "tekton-internal-") {
 			errs = errs.Also(apis.ErrGeneric(fmt.Sprintf(`volumeMount name %q cannot start with "tekton-internal-"`, vm.Name), "name").ViaFieldIndex("volumeMounts", j))
+		}
+	}
+
+	if s.OnError != "" {
+		errs = errs.Also(ValidateEnabledAPIFields(ctx, "step onError", config.AlphaAPIFields).ViaField("steps"))
+		if s.OnError != "continue" && s.OnError != "fail" {
+			errs = errs.Also(&apis.FieldError{
+				Message: fmt.Sprintf("invalid value: %v", s.OnError),
+				Paths:   []string{"onError"},
+				Details: "Task step onError must be either continue or fail",
+			})
 		}
 	}
 	return errs

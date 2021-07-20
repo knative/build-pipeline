@@ -1,0 +1,49 @@
+kind: TaskRun
+apiVersion: tekton.dev/v1beta1
+metadata:
+  generateName: taskrun-with-failing-step-
+spec:
+  taskSpec:
+    steps:
+      # exit with 1 and ignore non zero exit code
+      - image: alpine
+        onError: continue
+        name: exit-with-1
+        script: |
+          exit 1
+      # check if the /tekton/steps/step-<step-name>/exitCode got created and contains the exit code
+      # check if the symlink /tekton/steps/0/ got created
+      - image: alpine
+        name: verify-step-path
+        script: |
+          exitCode=`cat $(steps.step-exit-with-1.exitCode.path)`
+          if [ $exitCode == 1 ]; then
+              echo "Yay! the exit code can be accessed using the path variable and matches the previous step exit code"
+          else
+              echo "the exit code does not match."
+              exit 1
+          fi
+          FILE=/tekton/steps/step-exit-with-1/exitCode
+          if [ -f "$FILE" ]; then
+            echo "$FILE exists."
+            echo "Yay! the file exists which was created by the controller to record the step exit code."
+          else
+            echo "$FILE does not exist."
+            exit 1
+          fi
+          FILE=/tekton/steps/0/exitCode
+          if [ -f "$FILE" ]; then
+            echo "$FILE exists."
+            echo "Yay! the symlink exists which was created by the controller to record the step exit code."
+          else
+            echo "$FILE does not exist."
+            exit 1
+          fi
+          exitCode=`cat $FILE`
+          if [ $exitCode == 1 ]; then
+              echo "Yay! the exit code matches to the previous step exit code"
+          else
+              echo "the exit code does not match."
+              exit 1
+          fi
+---

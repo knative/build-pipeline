@@ -67,6 +67,9 @@ var (
 	}, {
 		Name:      "tekton-internal-results",
 		MountPath: pipeline.DefaultResultPath,
+	}, {
+		Name:      "tekton-internal-steps",
+		MountPath: pipeline.StepsPath,
 	}}
 	implicitVolumes = []corev1.Volume{{
 		Name:         "tekton-internal-workspace",
@@ -76,6 +79,9 @@ var (
 		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 	}, {
 		Name:         "tekton-internal-results",
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	}, {
+		Name:         "tekton-internal-steps",
 		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 	}}
 )
@@ -238,11 +244,7 @@ func (b *Builder) Build(ctx context.Context, taskRun *v1beta1.TaskRun, taskSpec 
 		if s.WorkingDir == "" && shouldOverrideWorkingDir {
 			stepContainers[i].WorkingDir = pipeline.WorkspaceDir
 		}
-		if s.Name == "" {
-			stepContainers[i].Name = names.SimpleNameGenerator.RestrictLength(fmt.Sprintf("%sunnamed-%d", stepPrefix, i))
-		} else {
-			stepContainers[i].Name = names.SimpleNameGenerator.RestrictLength(fmt.Sprintf("%s%s", stepPrefix, s.Name))
-		}
+		stepContainers[i].Name = names.SimpleNameGenerator.RestrictLength(StepName(s.Name, i))
 	}
 
 	// By default, use an empty pod template and take the one defined in the task run spec if any

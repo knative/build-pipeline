@@ -142,6 +142,8 @@ of how this directory is used:
   * These folders are [part of the Tekton API](../api_compatibility_policy.md):
     * `/tekton/results` is where [results](#results) are written to
       (path available to `Task` authors via [`$(results.name.path)`](../variables.md))
+    * `/tekton/steps` is where the `step` exitCodes are written to
+      (path available to `Task` authors via [`$(steps.<stepName>.exitCode.path)`](../variables.md#variables-available-in-a-task))
   * These folders are implementation details of Tekton and **users should not
     rely on this specific behavior as it may change in the future**:
     * `/tekton/tools` contains tools like the [entrypoint binary](#entrypoint-rewriting-and-step-ordering)

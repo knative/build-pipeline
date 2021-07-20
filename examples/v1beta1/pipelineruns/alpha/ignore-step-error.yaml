@@ -1,0 +1,59 @@
+kind: PipelineRun
+apiVersion: tekton.dev/v1beta1
+metadata:
+  generateName: pipelinerun-with-failing-step-
+spec:
+  serviceAccountName: 'default'
+  pipelineSpec:
+    tasks:
+      - name: task1
+        taskSpec:
+          steps:
+            # not really doing anything here, just a hurdle to test the "ignore step error"
+            - image: alpine
+              onError: continue
+              name: exit-with-1
+              script: |
+                exit 1
+            # initialize a task result which will be validated by the next task
+            - image: alpine
+              name: write-a-result
+              onError: continue
+              script: |
+                echo -n 123 | tee $(results.task1-result.path)
+                exit 11
+          results:
+            - name: task1-result
+              description: result of a task1
+      - name: task2
+        runAfter: ["task1"]
+        params:
+          - name: task1-result
+            value: $(tasks.task1.results.task1-result)
+        taskSpec:
+          params:
+            - name: task1-result
+          steps:
+            # again, not really doing anything here, just a hurdle to test the "ignore step error"
+            - image: alpine
+              onError: continue
+              name: exit-with-255
+              script: |
+                exit 255
+            # verify that the task result was produced by the first task, fail if the result does not match
+            - image: alpine
+              name: verify-a-task-result
+              script: |
+                ls /tekton/results/
+                if [ $(params.task1-result) == 123 ]; then
+                    echo "Yay! the task result matches which was initialized in the previous task while ignoring the step error"
+                else
+                    echo "the task result does not match."
+                    exit 1
+                fi
+            # the last step of a task and one more hurdle
+            - image: alpine
+              name: exit-with-20
+              onError: continue
+              script: |
+                exit 20

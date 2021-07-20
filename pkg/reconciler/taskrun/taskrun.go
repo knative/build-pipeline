@@ -667,6 +667,9 @@ func (c *Reconciler) createPod(ctx context.Context, tr *v1beta1.TaskRun, rtr *re
 	// Apply task result substitution
 	ts = resources.ApplyTaskResults(ts)
 
+	// Apply step exitCode path substitution
+	ts = resources.ApplyStepExitCodePath(ts)
+
 	ts, err = workspace.Apply(ctx, *ts, tr.Spec.Workspaces, workspaceVolumes)
 	if err != nil {
 		logger.Errorf("Failed to create a pod for taskrun: %s due to workspace error %v", tr.Name, err)

@@ -841,6 +841,60 @@ func TestMakeTaskRunStatus(t *testing.T) {
 				CompletionTime: &metav1.Time{Time: time.Now()},
 			},
 		},
+	}, {
+		desc: "include non zero exit code in a container termination message if entrypoint is set to ignore the error",
+		pod: corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "pod",
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "step-first",
+				}, {
+					Name: "step-second",
+				}},
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodSucceeded,
+				ContainerStatuses: []corev1.ContainerStatus{{
+					Name: "step-first",
+					State: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							Message: `[{"key":"ExitCode","value":"11","type":"InternalTektonResult"}]`,
+						},
+					},
+				}, {
+					Name: "step-second",
+					State: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{},
+					},
+				}},
+			},
+		},
+		want: v1beta1.TaskRunStatus{
+			Status: statusSuccess(),
+			TaskRunStatusFields: v1beta1.TaskRunStatusFields{
+				Steps: []v1beta1.StepState{{
+					ContainerState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							ExitCode: 11,
+						},
+					},
+					Name:          "first",
+					ContainerName: "step-first",
+				}, {
+					ContainerState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							ExitCode: 0,
+						}},
+					Name:          "second",
+					ContainerName: "step-second",
+				}},
+				Sidecars: []v1beta1.SidecarState{},
+				// We don't actually care about the time, just that it's not nil
+				CompletionTime: &metav1.Time{Time: time.Now()},
+			},
+		},
 	}} {
 		t.Run(c.desc, func(t *testing.T) {
 			now := metav1.Now()

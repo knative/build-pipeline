@@ -28,6 +28,7 @@ import (
 	"github.com/tektoncd/pipeline/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
+	"github.com/tektoncd/pipeline/pkg/pod"
 	"github.com/tektoncd/pipeline/pkg/substitution"
 )
 
@@ -194,6 +195,18 @@ func ApplyTaskResults(spec *v1beta1.TaskSpec) *v1beta1.TaskSpec {
 
 	for _, result := range spec.Results {
 		stringReplacements[fmt.Sprintf("results.%s.path", result.Name)] = filepath.Join(pipeline.DefaultResultPath, result.Name)
+	}
+	return ApplyReplacements(spec, stringReplacements, map[string][]string{})
+}
+
+// ApplyStepExitCodePath replaces the occurrences of exitCode path with the absolute tekton internal path
+// Replace $(steps.<step-name>.exitCode.path) with pipeline.StepPath/<step-name>/exitCode
+func ApplyStepExitCodePath(spec *v1beta1.TaskSpec) *v1beta1.TaskSpec {
+	stringReplacements := map[string]string{}
+
+	for i, step := range spec.Steps {
+		stringReplacements[fmt.Sprintf("steps.%s.exitCode.path", pod.StepName(step.Name, i))] =
+			filepath.Join(pipeline.StepsPath, pod.StepName(step.Name, i), "exitCode")
 	}
 	return ApplyReplacements(spec, stringReplacements, map[string][]string{})
 }
