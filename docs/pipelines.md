@@ -451,6 +451,15 @@ tasks:
         values: ["true"]
     taskRef:
       name: lint-source
+---
+tasks:
+  - name: deploy-in-blue
+    when:
+      - input: "blue"
+        operator: in
+        values: ["$(params.deployments[*])"]
+    taskRef:
+      name: deployment
 ```
 
 For an end-to-end example, see [PipelineRun with WhenExpressions](../examples/v1beta1/pipelineruns/pipelinerun-with-when-expressions.yaml).

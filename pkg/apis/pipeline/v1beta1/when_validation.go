@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tektoncd/pipeline/pkg/substitution"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -79,12 +78,15 @@ func (wes WhenExpressions) validatePipelineParametersVariables(prefix string, pa
 	for idx, we := range wes {
 		errs = errs.Also(validateStringVariable(we.Input, prefix, paramNames, arrayParamNames).ViaField("input").ViaFieldIndex("when", idx))
 		for _, val := range we.Values {
-			errs = errs.Also(validateStringVariable(val, prefix, paramNames, arrayParamNames).ViaField("values").ViaFieldIndex("when", idx))
+			// one of the values could be a reference to an array param, such as, $(params.foo[*])
+			// extract the variable name from the pattern $(params.foo[*]), if the variable name matches with one of the array params
+			// validate the param as an array variable otherwise, validate it as a string variable
+			if arrayParamNames.Has(ArrayReference(val)) {
+				errs = errs.Also(validateArrayVariable(val, prefix, paramNames, arrayParamNames).ViaField("values").ViaFieldIndex("when", idx))
+			} else {
+				errs = errs.Also(validateStringVariable(val, prefix, paramNames, arrayParamNames).ViaField("values").ViaFieldIndex("when", idx))
+			}
 		}
 	}
 	return errs
-}
-func validateStringVariable(value, prefix string, stringVars sets.String, arrayVars sets.String) *apis.FieldError {
-	errs := substitution.ValidateVariableP(value, prefix, stringVars)
-	return errs.Also(substitution.ValidateVariableProhibitedP(value, prefix, arrayVars))
 }

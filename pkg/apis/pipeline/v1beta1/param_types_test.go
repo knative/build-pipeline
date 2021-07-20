@@ -187,3 +187,22 @@ func TestArrayOrString_MarshalJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestArrayReference(t *testing.T) {
+	tests := []struct {
+		name, p, expectedResult string
+	}{{
+		name:           "valid array parameter expression with star notation returns param name",
+		p:              "$(params.arrayParam[*])",
+		expectedResult: "arrayParam",
+	}, {
+		name:           "invalid array parameter without dollar notation returns the input as is",
+		p:              "params.arrayParam[*]",
+		expectedResult: "params.arrayParam[*]",
+	}}
+	for _, tt := range tests {
+		if d := cmp.Diff(tt.expectedResult, v1beta1.ArrayReference(tt.p)); d != "" {
+			t.Errorf(diff.PrintWantGot(d))
+		}
+	}
+}
