@@ -6,7 +6,7 @@ weight: 2100
 -->
 # Conditions
 
-**Note:** `Conditions` are deprecated, use [WhenExpressions](pipelines.md#guard-task-execution-using-whenexpressions) instead. 
+**Note:** `Conditions` are deprecated, use [`when` expressions](pipelines.md#guard-task-execution-using-when-expressions) instead. 
 
 - [Overview](#overview)
 - [Configuring a `Condition`](#configuring-a-condition)

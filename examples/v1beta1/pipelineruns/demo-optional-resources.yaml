@@ -1,5 +1,5 @@
-# `Conditions` are deprecated, use `WhenExpressions` instead
-# https://github.com/tektoncd/pipeline/blob/main/docs/pipelines.md#guard-task-execution-using-whenexpressions
+# `Conditions` are deprecated, use `when` expressions instead
+# https://github.com/tektoncd/pipeline/blob/main/docs/pipelines.md#guard-task-execution-using-when-expressions
 apiVersion: tekton.dev/v1alpha1
 kind: Condition
 metadata:
@@ -15,8 +15,8 @@ spec:
     image: alpine
     script: 'test -f $(resources.git-repo.path)/$(params.path)'
 ---
-# `Conditions` are deprecated, use `WhenExpressions` instead
-# https://github.com/tektoncd/pipeline/blob/main/docs/pipelines.md#guard-task-execution-using-whenexpressions
+# `Conditions` are deprecated, use `when` expressions instead
+# https://github.com/tektoncd/pipeline/blob/main/docs/pipelines.md#guard-task-execution-using-when-expressions
 apiVersion: tekton.dev/v1alpha1
 kind: Condition
 metadata:
