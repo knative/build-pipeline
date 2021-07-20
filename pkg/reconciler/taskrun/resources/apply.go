@@ -267,6 +267,10 @@ func ApplyReplacements(spec *v1beta1.TaskSpec, stringReplacements map[string]str
 		}
 	}
 
+	for i, v := range spec.Workspaces {
+		spec.Workspaces[i].MountPath = substitution.ApplyReplacements(v.MountPath, stringReplacements)
+	}
+
 	// Apply variable substitution to the sidecar definitions
 	sidecars := spec.Sidecars
 	for i := range sidecars {

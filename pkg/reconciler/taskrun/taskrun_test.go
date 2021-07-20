@@ -38,6 +38,7 @@ import (
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	podconvert "github.com/tektoncd/pipeline/pkg/pod"
 	"github.com/tektoncd/pipeline/pkg/reconciler/events/cloudevent"
+	"github.com/tektoncd/pipeline/pkg/reconciler/taskrun/resources"
 	ttesting "github.com/tektoncd/pipeline/pkg/reconciler/testing"
 	"github.com/tektoncd/pipeline/pkg/reconciler/volumeclaim"
 	"github.com/tektoncd/pipeline/pkg/version"
@@ -2136,6 +2137,183 @@ func TestReconcileTimeouts(t *testing.T) {
 				t.Errorf(err.Error())
 			}
 		})
+	}
+}
+
+func TestExpandMountPath(t *testing.T) {
+	expectedMountPath := "/temppath/replaced"
+	expectedReplacedArgs := fmt.Sprintf("replacedArgs - %s", expectedMountPath)
+	// The task's Workspace has a parameter variable
+	simpleTask := tb.Task("test-task",
+		tb.TaskSpec(
+			tb.TaskWorkspace("tr-workspace", "a test task workspace", "/temppath/$(params.source-path)", true),
+			tb.TaskParam("source-path", "string"),
+			tb.TaskParam("source-path-two", "string"),
+			tb.Step("foo",
+				tb.StepName("simple-step"), tb.StepCommand("echo"), tb.StepArgs("replacedArgs - $(workspaces.tr-workspace.path)"),
+			)),
+
+		tb.TaskNamespace("foo"),
+	)
+
+	taskRun := tb.TaskRun("test-taskrun-not-started",
+		tb.TaskRunSelfLink("/test/taskrun1"),
+		tb.TaskRunNamespace("foo"),
+		tb.TaskRunSpec(tb.TaskRunTaskRef(simpleTask.Name),
+			tb.TaskRunWorkspaceEmptyDir("tr-workspace", ""),
+			tb.TaskRunParam("source-path", "replaced"),
+		),
+	)
+	d := test.Data{
+		TaskRuns: []*v1beta1.TaskRun{taskRun},
+		Tasks:    []*v1beta1.Task{simpleTask},
+	}
+
+	names.TestingSeed()
+	d.ConfigMaps = []*corev1.ConfigMap{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: config.GetDefaultsConfigName(), Namespace: system.Namespace()},
+			Data: map[string]string{
+				"default-cloud-events-sink": "http://synk:8080",
+			},
+		},
+	}
+
+	testAssets, cancel := getTaskRunController(t, d)
+	defer cancel()
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	// c := testAssets.Controller
+	clients := testAssets.Clients
+	saName := "default"
+	if _, err := clients.Kube.CoreV1().ServiceAccounts(taskRun.Namespace).Create(testAssets.Ctx, &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      saName,
+			Namespace: taskRun.Namespace,
+		},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Use the test assets to create a *Reconciler directly for focused testing.
+	r := &Reconciler{
+		KubeClientSet:     testAssets.Clients.Kube,
+		PipelineClientSet: testAssets.Clients.Pipeline,
+		taskRunLister:     testAssets.Informers.TaskRun.Lister(),
+		taskLister:        testAssets.Informers.Task.Lister(),
+		clusterTaskLister: testAssets.Informers.ClusterTask.Lister(),
+		resourceLister:    testAssets.Informers.PipelineResource.Lister(),
+		cloudEventClient:  testAssets.Clients.CloudEvents,
+		metrics:           nil, // Not used
+		entrypointCache:   nil, // Not used
+		pvcHandler:        volumeclaim.NewPVCHandler(testAssets.Clients.Kube, testAssets.Logger),
+	}
+
+	rtr := &resources.ResolvedTaskResources{
+		TaskName: "test-task",
+		Kind:     "Task",
+		TaskSpec: &v1beta1.TaskSpec{Steps: simpleTask.Spec.Steps, Workspaces: simpleTask.Spec.Workspaces},
+	}
+
+	pod, err := r.createPod(ctx, taskRun, rtr)
+
+	if err != nil {
+		t.Fatalf("create pod threw error %v", err)
+	}
+
+	if vm := pod.Spec.Containers[0].VolumeMounts[0]; !strings.HasPrefix(vm.Name, "ws-9l9zj") || vm.MountPath != expectedMountPath {
+		t.Fatalf("failed to find expanded Workspace mountpath %v", expectedMountPath)
+	}
+
+	if a := pod.Spec.Containers[0].Args[10]; a != expectedReplacedArgs {
+		t.Fatalf("failed to replace Workspace mountpath variable, expected %s, actual: %s", expectedReplacedArgs, a)
+	}
+}
+
+func TestExpandMountPath_DuplicatePaths(t *testing.T) {
+	expectedError := "workspace mount path \"/temppath/duplicate\" must be unique: workspaces[1].mountpath"
+	// The task has two workspaces, with different mount path strings.
+	simpleTask := tb.Task("test-task",
+		tb.TaskSpec(
+			tb.TaskWorkspace("tr-workspace", "a test task workspace", "/temppath/$(params.source-path)", true),
+			tb.TaskWorkspace("tr-workspace-two", "a second task workspace", "/temppath/$(params.source-path-two)", true),
+			tb.TaskParam("source-path", "string"),
+			tb.TaskParam("source-path-two", "string"),
+			tb.Step("foo",
+				tb.StepName("simple-step"), tb.StepCommand("/mycmd"), tb.StepEnvVar("foo", "bar"),
+			)),
+
+		tb.TaskNamespace("foo"),
+	)
+
+	// The parameter values will cause the two Workspaces to have duplicate mount path values after the parameters are expanded.
+	taskRun := tb.TaskRun("test-taskrun-not-started",
+		tb.TaskRunSelfLink("/test/taskrun1"),
+		tb.TaskRunNamespace("foo"),
+		tb.TaskRunSpec(tb.TaskRunTaskRef(simpleTask.Name),
+			tb.TaskRunWorkspaceEmptyDir("tr-workspace", ""),
+			tb.TaskRunWorkspaceEmptyDir("tr-workspace-two", ""),
+			tb.TaskRunParam("source-path", "duplicate"),
+			tb.TaskRunParam("source-path-two", "duplicate"),
+		),
+	)
+	d := test.Data{
+		TaskRuns: []*v1beta1.TaskRun{taskRun},
+		Tasks:    []*v1beta1.Task{simpleTask},
+	}
+
+	names.TestingSeed()
+	d.ConfigMaps = []*corev1.ConfigMap{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: config.GetDefaultsConfigName(), Namespace: system.Namespace()},
+			Data: map[string]string{
+				"default-cloud-events-sink": "http://synk:8080",
+			},
+		},
+	}
+
+	testAssets, cancel := getTaskRunController(t, d)
+	defer cancel()
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	clients := testAssets.Clients
+	saName := "default"
+	if _, err := clients.Kube.CoreV1().ServiceAccounts(taskRun.Namespace).Create(testAssets.Ctx, &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      saName,
+			Namespace: taskRun.Namespace,
+		},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Reconciler{
+		KubeClientSet:     testAssets.Clients.Kube,
+		PipelineClientSet: testAssets.Clients.Pipeline,
+		taskRunLister:     testAssets.Informers.TaskRun.Lister(),
+		taskLister:        testAssets.Informers.Task.Lister(),
+		clusterTaskLister: testAssets.Informers.ClusterTask.Lister(),
+		resourceLister:    testAssets.Informers.PipelineResource.Lister(),
+		cloudEventClient:  testAssets.Clients.CloudEvents,
+		metrics:           nil, // Not used
+		entrypointCache:   nil, // Not used
+		pvcHandler:        volumeclaim.NewPVCHandler(testAssets.Clients.Kube, testAssets.Logger),
+	}
+
+	rtr := &resources.ResolvedTaskResources{
+		TaskName: "test-task",
+		Kind:     "Task",
+		TaskSpec: &v1beta1.TaskSpec{Steps: simpleTask.Spec.Steps, Workspaces: simpleTask.Spec.Workspaces},
+	}
+
+	_, err := r.createPod(ctx, taskRun, rtr)
+
+	if err == nil || err.Error() != expectedError {
+		t.Errorf("Expected to fail validation for duplicate Workspace mount paths, error was %v", err)
 	}
 }
 

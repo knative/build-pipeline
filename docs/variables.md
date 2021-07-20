@@ -159,6 +159,7 @@ variable via `resources.inputs.<resourceName>.<variableName>` or
 | `Task` | `spec.sidecars[].volumemounts.mountpath` |
 | `Task` | `spec.sidecars[].volumemounts.subpath` |
 | `Task` | `spec.sidecars[].script` |
+| `Task` | `spec.workspaces[].mountPath` |
 | `Pipeline` | `spec.tasks[].params[].value` |
 | `Pipeline` | `spec.tasks[].conditions[].params[].value` |
 | `Pipeline` | `spec.results[].value` |
