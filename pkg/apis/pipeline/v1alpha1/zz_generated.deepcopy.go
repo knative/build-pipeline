@@ -715,6 +715,11 @@ func (in *RunSpec) DeepCopyInto(out *RunSpec) {
 		*out = new(pod.Template)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Timeout != nil {
+		in, out := &in.Timeout, &out.Timeout
+		*out = new(v1.Duration)
+		**out = **in
+	}
 	if in.Workspaces != nil {
 		in, out := &in.Workspaces, &out.Workspaces
 		*out = make([]v1beta1.WorkspaceBinding, len(*in))

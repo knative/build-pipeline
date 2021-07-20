@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -51,7 +52,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
+	k8sApiLables "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"knative.dev/pkg/apis"
@@ -573,6 +574,10 @@ func (c *Reconciler) reconcile(ctx context.Context, pr *v1beta1.PipelineRun, get
 		return err
 	}
 
+	if err := c.processRunTimeouts(ctx, pr, pipelineRunState); err != nil {
+		return err
+	}
+
 	// Reset the skipped status to trigger recalculation
 	pipelineRunFacts.ResetSkippedCache()
 
@@ -591,12 +596,38 @@ func (c *Reconciler) reconcile(ctx context.Context, pr *v1beta1.PipelineRun, get
 	pr.Status.TaskRuns = pipelineRunFacts.State.GetTaskRunsStatus(pr)
 	pr.Status.Runs = pipelineRunFacts.State.GetRunsStatus(pr)
 	pr.Status.SkippedTasks = pipelineRunFacts.GetSkippedTasks()
-
 	if after.Status == corev1.ConditionTrue {
 		pr.Status.PipelineResults = resources.ApplyTaskResultsToPipelineResults(pipelineSpec.Results, pr.Status.TaskRuns, pr.Status.Runs)
 	}
 
 	logger.Infof("PipelineRun %s status is being set to %s", pr.Name, after)
+	return nil
+}
+
+// processRunTimeouts custom tasks are requested to cancel, if they have timed out. Custom tasks can do any cleanup
+// during this step.
+func (c *Reconciler) processRunTimeouts(ctx context.Context, pr *v1beta1.PipelineRun, pipelineState resources.PipelineRunState) error {
+	errs := []string{}
+	logger := logging.FromContext(ctx)
+	if pr.IsCancelled() {
+		return nil
+	}
+	for _, rprt := range pipelineState {
+		if rprt.IsCustomTask() {
+			if rprt.Run != nil && !rprt.Run.IsCancelled() && (pr.IsTimedOut() || (rprt.Run.HasTimedOut() && !rprt.Run.IsDone())) {
+				logger.Infof("Cancelling run task: %s due to timeout.", rprt.RunName)
+				err := cancelRun(ctx, rprt.RunName, pr.Namespace, c.PipelineClientSet)
+				if err != nil {
+					errs = append(errs,
+						fmt.Errorf("failed to patch Run `%s` with cancellation: %s", rprt.RunName, err).Error())
+				}
+			}
+		}
+	}
+	if len(errs) > 0 {
+		e := strings.Join(errs, "\n")
+		return fmt.Errorf("error(s) from processing cancel request for timed out Run(s) of PipelineRun %s: %s", pr.Name, e)
+	}
 	return nil
 }
 
@@ -652,7 +683,11 @@ func (c *Reconciler) runNextSchedulableTask(ctx context.Context, pr *v1beta1.Pip
 		}
 		if rprt.ResolvedConditionChecks == nil || rprt.ResolvedConditionChecks.IsSuccess() {
 			if rprt.IsCustomTask() {
-				rprt.Run, err = c.createRun(ctx, rprt, pr)
+				if rprt.IsFinalTask(pipelineRunFacts) {
+					rprt.Run, err = c.createRun(ctx, rprt, pr, getFinallyTaskRunTimeout)
+				} else {
+					rprt.Run, err = c.createRun(ctx, rprt, pr, getTaskRunTimeout)
+				}
 				if err != nil {
 					recorder.Eventf(pr, corev1.EventTypeWarning, "RunCreationFailed", "Failed to create Run %q: %v", rprt.RunName, err)
 					return fmt.Errorf("error creating Run called %s for PipelineTask %s from PipelineRun %s: %w", rprt.RunName, rprt.PipelineTask.Name, pr.Name, err)
@@ -770,7 +805,7 @@ func (c *Reconciler) createTaskRun(ctx context.Context, rprt *resources.Resolved
 	return c.PipelineClientSet.TektonV1beta1().TaskRuns(pr.Namespace).Create(ctx, tr, metav1.CreateOptions{})
 }
 
-func (c *Reconciler) createRun(ctx context.Context, rprt *resources.ResolvedPipelineRunTask, pr *v1beta1.PipelineRun) (*v1alpha1.Run, error) {
+func (c *Reconciler) createRun(ctx context.Context, rprt *resources.ResolvedPipelineRunTask, pr *v1beta1.PipelineRun, getTimeoutFunc getTimeoutFunc) (*v1alpha1.Run, error) {
 	logger := logging.FromContext(ctx)
 	taskRunSpec := pr.GetTaskRunSpec(rprt.PipelineTask.Name)
 	r := &v1alpha1.Run{
@@ -785,6 +820,7 @@ func (c *Reconciler) createRun(ctx context.Context, rprt *resources.ResolvedPipe
 			Ref:                rprt.PipelineTask.TaskRef,
 			Params:             rprt.PipelineTask.Params,
 			ServiceAccountName: taskRunSpec.TaskServiceAccountName,
+			Timeout:            getTimeoutFunc(ctx, pr, rprt),
 			PodTemplate:        taskRunSpec.TaskPodTemplate,
 		},
 	}
@@ -1151,14 +1187,14 @@ func (c *Reconciler) updatePipelineRunStatusFromInformer(ctx context.Context, pr
 	// Pipeline and PipelineRun.  The user could change them during the lifetime of the PipelineRun so the
 	// current labels may not be set on the previously created TaskRuns.
 	pipelineRunLabels := getTaskrunLabels(pr, "", false)
-	taskRuns, err := c.taskRunLister.TaskRuns(pr.Namespace).List(labels.SelectorFromSet(pipelineRunLabels))
+	taskRuns, err := c.taskRunLister.TaskRuns(pr.Namespace).List(k8sApiLables.SelectorFromSet(pipelineRunLabels))
 	if err != nil {
 		logger.Errorf("could not list TaskRuns %#v", err)
 		return err
 	}
 	updatePipelineRunStatusFromTaskRuns(logger, pr, taskRuns)
 
-	runs, err := c.runLister.Runs(pr.Namespace).List(labels.SelectorFromSet(pipelineRunLabels))
+	runs, err := c.runLister.Runs(pr.Namespace).List(k8sApiLables.SelectorFromSet(pipelineRunLabels))
 	if err != nil {
 		logger.Errorf("could not list Runs %#v", err)
 		return err

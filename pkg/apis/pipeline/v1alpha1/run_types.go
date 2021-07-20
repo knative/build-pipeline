@@ -18,7 +18,9 @@ package v1alpha1
 
 import (
 	"fmt"
+	"time"
 
+	apisconfig "github.com/tektoncd/pipeline/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	runv1alpha1 "github.com/tektoncd/pipeline/pkg/apis/run/v1alpha1"
@@ -72,6 +74,11 @@ type RunSpec struct {
 	// +optional
 	PodTemplate *PodTemplate `json:"podTemplate,omitempty"`
 
+	// Time after which the custom-task times out.
+	// Refer Go's ParseDuration documentation for expected format: https://golang.org/pkg/time/#ParseDuration
+	// +optional
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+
 	// Workspaces is a list of WorkspaceBindings from volumes to workspaces.
 	// +optional
 	Workspaces []v1beta1.WorkspaceBinding `json:"workspaces,omitempty"`
@@ -103,6 +110,8 @@ func (rs RunSpec) GetParam(name string) *v1beta1.Param {
 const (
 	// RunReasonCancelled must be used in the Condition Reason to indicate that a Run was cancelled.
 	RunReasonCancelled = "RunCancelled"
+	// RunReasonTimedOut must be used in the Condition Reason to indicate that a Run was timed out.
+	RunReasonTimedOut = "RunTimedOut"
 	// RunReasonWorkspaceNotSupported can be used in the Condition Reason to indicate that the
 	// Run contains a workspace which is not supported by this custom task.
 	RunReasonWorkspaceNotSupported = "RunWorkspaceNotSupported"
@@ -196,8 +205,30 @@ func (r *Run) IsSuccessful() bool {
 	return r.Status.GetCondition(apis.ConditionSucceeded).IsTrue()
 }
 
-// GetRunKey return the taskrun key for timeout handler map
+// GetRunKey return the run's key for timeout handler map
 func (r *Run) GetRunKey() string {
-	// The address of the pointer is a threadsafe unique identifier for the taskrun
+	// The address of the pointer is a threadsafe unique identifier for the run
 	return fmt.Sprintf("%s/%p", "Run", r)
+}
+
+// HasTimedOut returns true if the Run's running time is beyond the allowed timeout
+func (r *Run) HasTimedOut() bool {
+	if r.Status.StartTime == nil || r.Status.StartTime.IsZero() {
+		return false
+	}
+	timeout := r.GetTimeout()
+	// If timeout is set to 0 or defaulted to 0, there is no timeout.
+	if timeout == apisconfig.NoTimeoutDuration {
+		return false
+	}
+	runtime := time.Since(r.Status.StartTime.Time)
+	return runtime > timeout
+}
+
+func (r *Run) GetTimeout() time.Duration {
+	// Use the platform default if no timeout is set
+	if r.Spec.Timeout == nil {
+		return apisconfig.DefaultTimeoutMinutes * time.Minute
+	}
+	return r.Spec.Timeout.Duration
 }

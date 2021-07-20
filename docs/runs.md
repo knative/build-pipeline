@@ -139,19 +139,58 @@ the `example.dev` API group,  with the version `v1alpha1`.
 #### Developer guide for custom controllers supporting `spec`.
 
 1. A custom controller may or may not support a `Spec`. In cases where it is
-   not supported the custom controller should respond with proper validation error.
+   not supported the custom controller should respond with proper validation
+   error.
 
-2. Validation of the fields of the custom task is delegated to the custom task controller. It is recommended to
-   implement validations as asynchronous
-   (i.e. at reconcile time), rather than part of the webhook. Using a webhook for validation is problematic because, it
-   is not possible to filter custom task resource objects before validation step, as a result each custom task resource
-   has to undergo validation by all the installed custom task controllers.
-   
+2. Validation of the fields of the custom task is delegated to the custom
+   task controller. It is recommended to implement validations as asynchronous
+   (i.e. at reconcile time), rather than part of the webhook. Using a webhook
+   for validation is problematic because, it is not possible to filter custom
+   task resource objects before validation step, as a result each custom task
+   resource has to undergo validation by all the installed custom task
+   controllers.
+
 3. A custom task may have an empty spec, but cannot have an empty
-    `ApiVersion` and `Kind`. Custom task controllers should handle
+   `ApiVersion` and `Kind`. Custom task controllers should handle
    an empty spec, either with a default behaviour, in a case no default
    behaviour is supported then, appropriate validation error should be
    updated to the `Run`'s status.
+
+### Specifying `Timeout`
+
+A custom task specification can be created with `Timeout` as follows:
+
+```yaml
+apiVersion: tekton.dev/v1alpha1
+kind: Run
+metadata:
+  generateName: simpleexample
+spec:
+  timeout: 10s # set timeouts here.
+  params:
+    - name: searching
+      value: the purpose of my existence
+  ref:
+    apiVersion: custom.tekton.dev/v1alpha1
+    kind: Example
+    name: exampleName
+```
+
+Supporting timeouts is optional but recommended.
+
+#### Developer guide for custom controllers supporting `Timeout`
+
+1. A tektoncd owned controller will never directly update the status of the
+   `Run`, it is the responsibility of the custom task controller to support
+   timeout.
+2. On a `pipelineRun` or `pipelineTask` timeout, the status of the
+   `Run.Spec.Status` is updated to `RunCancelled`. It is upto the custom task
+   controller, to respond to it. An existing controller, which does not yet
+   support timeout, will be able to cleanup, if it supports a cancel.
+3. A Custom Task author can watch for this status update
+   (i.e. `Run.Spec.Status == RunCancelled`) and or `Run.HasTimedOut()` and take
+   any corresponding actions ( i.e. a clean up e.g., cancel a cloud build, stop
+   the waiting timer, tear down the approval listener).
 
 ### Specifying `Parameters`
 

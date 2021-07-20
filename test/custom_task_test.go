@@ -20,7 +20,9 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,12 +30,14 @@ import (
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	"github.com/tektoncd/pipeline/test/diff"
+	"go.opencensus.io/trace"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	knativetest "knative.dev/pkg/test"
+	"knative.dev/pkg/test/helpers"
 )
 
 const (
@@ -232,5 +236,130 @@ func TestCustomTask(t *testing.T) {
 	}
 	if d := cmp.Diff(expectedPipelineResults, pr.Status.PipelineResults); d != "" {
 		t.Fatalf("Unexpected PipelineResults: %s", diff.PrintWantGot(d))
+	}
+}
+
+// WaitForRunSpecCancelled polls the spec.status of the Run until it is
+// "RunCancelled", returns an error on timeout. desc will be used to name
+// the metric that is emitted to track how long it took.
+func WaitForRunSpecCancelled(ctx context.Context, c *clients, name string, desc string) error {
+	metricName := fmt.Sprintf("WaitForRunSpecCancelled/%s/%s", name, desc)
+	_, span := trace.StartSpan(context.Background(), metricName)
+	defer span.End()
+
+	return pollImmediateWithContext(ctx, func() (bool, error) {
+		r, err := c.RunClient.Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return true, err
+		}
+		return r.Spec.Status == v1alpha1.RunSpecStatusCancelled, nil
+	})
+}
+
+// TestPipelineRunCustomTaskTimeout is an integration test that will
+// verify that pipelinerun timeout works and leads to the the correct Run Spec.status
+func TestPipelineRunCustomTaskTimeout(t *testing.T) {
+	// cancel the context after we have waited a suitable buffer beyond the given deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout+2*time.Minute)
+	defer cancel()
+	c, namespace := setup(ctx, t, requireAnyGate(supportedFeatureGates))
+
+	knativetest.CleanupOnInterrupt(func() { tearDown(context.Background(), t, c, namespace) }, t.Logf)
+	defer tearDown(context.Background(), t, c, namespace)
+	pipeline := &v1beta1.Pipeline{
+		ObjectMeta: metav1.ObjectMeta{Name: helpers.ObjectNameForTest(t), Namespace: namespace},
+		Spec: v1beta1.PipelineSpec{
+			Tasks: []v1beta1.PipelineTask{{
+				Name: "custom-task-ref",
+				TaskRef: &v1beta1.TaskRef{
+					APIVersion: apiVersion,
+					Kind:       kind,
+				},
+			}},
+		},
+	}
+	pipelineRun := &v1beta1.PipelineRun{
+		ObjectMeta: metav1.ObjectMeta{Name: helpers.ObjectNameForTest(t), Namespace: namespace},
+		Spec: v1beta1.PipelineRunSpec{
+			PipelineRef: &v1beta1.PipelineRef{Name: pipeline.Name},
+			Timeout:     &metav1.Duration{Duration: 5 * time.Second},
+		},
+	}
+	if _, err := c.PipelineClient.Create(ctx, pipeline, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("Failed to create Pipeline `%s`: %s", pipeline.Name, err)
+	}
+	if _, err := c.PipelineRunClient.Create(ctx, pipelineRun, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("Failed to create PipelineRun `%s`: %s", pipelineRun.Name, err)
+	}
+
+	t.Logf("Waiting for Pipelinerun %s in namespace %s to be started", pipelineRun.Name, namespace)
+	if err := WaitForPipelineRunState(ctx, c, pipelineRun.Name, timeout, Running(pipelineRun.Name), "PipelineRunRunning"); err != nil {
+		t.Fatalf("Error waiting for PipelineRun %s to be running: %s", pipelineRun.Name, err)
+	}
+
+	pr, err := c.PipelineRunClient.Get(ctx, pipelineRun.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Failed to get PipelineRun %q: %v", pipelineRun.Name, err)
+	}
+
+	// Get the Run name.
+	if len(pr.Status.Runs) != 1 {
+		t.Fatalf("PipelineRun had unexpected .status.runs; got %d, want 1", len(pr.Status.Runs))
+	}
+
+	for runName := range pr.Status.Runs {
+		// Get the Run.
+		r, err := c.RunClient.Get(ctx, runName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("Failed to get Run %q: %v", runName, err)
+		}
+		if r.IsDone() {
+			t.Fatalf("Run unexpectedly done: %v", r.Status.GetCondition(apis.ConditionSucceeded))
+		}
+
+		// Simulate a Custom Task controller updating the Run to be started/running,
+		// because, a run that has not started cannot timeout.
+		r.Status = v1alpha1.RunStatus{
+			RunStatusFields: v1alpha1.RunStatusFields{
+				StartTime: &metav1.Time{Time: time.Now()},
+			},
+			Status: duckv1.Status{
+				Conditions: []apis.Condition{{
+					Type:   apis.ConditionSucceeded,
+					Status: corev1.ConditionUnknown,
+				}},
+			},
+		}
+		if _, err := c.RunClient.UpdateStatus(ctx, r, metav1.UpdateOptions{}); err != nil {
+			t.Fatalf("Failed to update Run to successful: %v", err)
+		}
+	}
+
+	t.Logf("Waiting for PipelineRun %s in namespace %s to be timed out", pipelineRun.Name, namespace)
+	if err := WaitForPipelineRunState(ctx, c, pipelineRun.Name, timeout, FailedWithReason(v1beta1.PipelineRunReasonTimedOut.String(), pipelineRun.Name), "PipelineRunTimedOut"); err != nil {
+		t.Errorf("Error waiting for PipelineRun %s to finish: %s", pipelineRun.Name, err)
+	}
+
+	runList, err := c.RunClient.List(ctx, metav1.ListOptions{LabelSelector: fmt.Sprintf("tekton.dev/pipelineRun=%s", pipelineRun.Name)})
+	if err != nil {
+		t.Fatalf("Error listing Runs for PipelineRun %s: %s", pipelineRun.Name, err)
+	}
+
+	t.Logf("Runs from PipelineRun %s in namespace %s must be cancelled", pipelineRun.Name, namespace)
+	var wg sync.WaitGroup
+	for _, runItem := range runList.Items {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			err := WaitForRunSpecCancelled(ctx, c, name, "RunCancelled")
+			if err != nil {
+				t.Errorf("Error waiting for Run %s to cancel: %s", name, err)
+			}
+		}(runItem.Name)
+	}
+	wg.Wait()
+
+	if _, err := c.PipelineRunClient.Get(ctx, pipelineRun.Name, metav1.GetOptions{}); err != nil {
+		t.Fatalf("Failed to get PipelineRun `%s`: %s", pipelineRun.Name, err)
 	}
 }
