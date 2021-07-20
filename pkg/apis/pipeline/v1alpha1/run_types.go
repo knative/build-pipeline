@@ -61,9 +61,13 @@ type RunSpec struct {
 	// +optional
 	Params []v1beta1.Param `json:"params,omitempty"`
 
-	// Used for cancelling a run (and maybe more later on)
+	// Used for cancelling/retrying a run (and maybe more later on)
 	// +optional
 	Status RunSpecStatus `json:"status,omitempty"`
+
+	// Used for propagating retries count to custom tasks
+	// +optional
+	Retries int `json:"retries,omitempty"`
 
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName"`
@@ -88,6 +92,9 @@ const (
 	// RunSpecStatusCancelled indicates that the user wants to cancel the run,
 	// if not already cancelled or terminated
 	RunSpecStatusCancelled RunSpecStatus = "RunCancelled"
+
+	// RunSpecStatusRetry indicates that custom task needs to honor the retry request
+	RunSpecStatusRetry RunSpecStatus = "RunRetry"
 )
 
 // TODO(jasonhall): Move this to a Params type so other code can use it?
@@ -179,6 +186,11 @@ func (r *Run) HasPipelineRunOwnerReference() bool {
 // IsCancelled returns true if the Run's spec status is set to Cancelled state
 func (r *Run) IsCancelled() bool {
 	return r.Spec.Status == RunSpecStatusCancelled
+}
+
+// IsRetry returns true if the Run's spec status is set to Retry state
+func (r *Run) IsRetry() bool {
+	return r.Spec.Status == RunSpecStatusRetry
 }
 
 // IsDone returns true if the Run's status indicates that it is done.

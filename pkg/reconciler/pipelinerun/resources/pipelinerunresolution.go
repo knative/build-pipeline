@@ -109,7 +109,12 @@ func (t ResolvedPipelineRunTask) IsSuccessful() bool {
 // IsFailure returns true only if the run has failed and will not be retried.
 func (t ResolvedPipelineRunTask) IsFailure() bool {
 	if t.IsCustomTask() {
-		return t.Run != nil && t.Run.IsDone() && !t.Run.IsSuccessful()
+		if t.Run == nil {
+			return false
+		}
+		retriesDone := len(t.Run.Status.RetriesStatus)
+		retries := t.PipelineTask.Retries
+		return t.Run.IsDone() && !t.Run.IsSuccessful() && retriesDone >= retries
 	}
 	if t.TaskRun == nil {
 		return false
@@ -141,7 +146,6 @@ func (t ResolvedPipelineRunTask) IsCancelled() bool {
 func (t ResolvedPipelineRunTask) IsStarted() bool {
 	if t.IsCustomTask() {
 		return t.Run != nil && t.Run.Status.GetCondition(apis.ConditionSucceeded) != nil
-
 	}
 	return t.TaskRun != nil && t.TaskRun.Status.GetCondition(apis.ConditionSucceeded) != nil
 }

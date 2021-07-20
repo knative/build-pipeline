@@ -54,6 +54,13 @@ func (in *RunStatusFields) DeepCopyInto(out *RunStatusFields) {
 		*out = make([]RunResult, len(*in))
 		copy(*out, *in)
 	}
+	if in.RetriesStatus != nil {
+		in, out := &in.RetriesStatus, &out.RetriesStatus
+		*out = make([]RunStatus, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	in.ExtraFields.DeepCopyInto(&out.ExtraFields)
 	return
 }

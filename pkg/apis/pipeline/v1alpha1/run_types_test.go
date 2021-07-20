@@ -168,6 +168,17 @@ func TestRunIsCancelled(t *testing.T) {
 	}
 }
 
+func TestRunIsRetry(t *testing.T) {
+	run := v1alpha1.Run{
+		Spec: v1alpha1.RunSpec{
+			Status: v1alpha1.RunSpecStatusRetry,
+		},
+	}
+	if !run.IsRetry() {
+		t.Fatal("Expected run status to be retry")
+	}
+}
+
 // TestRunStatusExtraFields tests that extraFields in a RunStatus can be parsed
 // from YAML.
 func TestRunStatus(t *testing.T) {

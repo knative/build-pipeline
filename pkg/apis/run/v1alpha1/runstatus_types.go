@@ -58,6 +58,10 @@ type RunStatusFields struct {
 	// +optional
 	Results []RunResult `json:"results,omitempty"`
 
+	// RetriesStatus contains the history of RunStatus, in case of a retry.
+	// +optional
+	RetriesStatus []RunStatus `json:"retriesStatus,omitempty"`
+
 	// ExtraFields holds arbitrary fields provided by the custom task
 	// controller.
 	ExtraFields runtime.RawExtension `json:"extraFields,omitempty"`

@@ -18,6 +18,7 @@ package pipelinerun
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http/httptest"
 	"net/url"
@@ -45,6 +46,7 @@ import (
 	"github.com/tektoncd/pipeline/test"
 	"github.com/tektoncd/pipeline/test/diff"
 	"github.com/tektoncd/pipeline/test/names"
+	"gomodules.xyz/jsonpatch/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -2519,6 +2521,264 @@ func TestReconcileCustomTasksWithDifferentServiceAccounts(t *testing.T) {
 		if actual.Spec.ServiceAccountName != expectedSANames[i] {
 			t.Errorf("Expected Run %s to have service account %s but it was %s", runNames[i], expectedSANames[i], actual.Spec.ServiceAccountName)
 		}
+	}
+}
+
+func TestReconcileForCustomTaskWithRetriesNotSupported(t *testing.T) {
+	names.TestingSeed()
+	// TestReconcileForCustomTaskWithRetriesNotSupported runs "Reconcile" on a PipelineRun.
+	// It verifies that reconcile is successful, and the individual
+	// custom task which has failed, is patched as retry.
+	// In case of custom task, the way the retry work is as follows:
+	// 1. Pipelinerun controller requests the custom task to retry by patching the 'spec.status'
+	// 	to 'RunRetry'
+	// 2. Custom task controller which supports the Retry, has to clear the 'spec.status' and
+	// 	begin retrying.
+	// 3. Then if custom task fails again, and 'pipelineTask.retries' are not exhausted then
+	// 	PipelineRun controller again patches the 'spec.Status' to 'RunRetry'
+	// 4. In this way the custom task retries again and again until the `retries` count is exhausted.
+	// 	The benefit of this approach is, pipelines have the updated run history of custom task.
+	// 5. If the custom task, does not support a retry i.e. it does not clear it's 'spec.status',
+	// 	we wait until the shorter timeout i.e. 30 seconds and exhaust all retries.
+	ns := "test"
+	expectedRetries := 5
+	ps := []*v1beta1.Pipeline{tb.Pipeline("test-pipeline", tb.PipelineNamespace(ns),
+		tb.PipelineSpec(tb.PipelineTask("hello-world-1", "hello-world", tb.Retries(expectedRetries)))),
+	}
+	prName := "test-pipeline-run-custom-task-with-retry"
+	prs := []*v1beta1.PipelineRun{tb.PipelineRun(prName,
+		tb.PipelineRunNamespace("test"),
+		tb.PipelineRunSpec("test-pipeline",
+			tb.PipelineRunServiceAccountName("test-sa"),
+		),
+	)}
+	ps[0].Spec.Tasks[0].TaskRef = &v1beta1.TaskRef{APIVersion: "example.dev/v0", Kind: "Example"}
+	runName := "test-pipeline-run-custom-task-with-retry-hello-world-1"
+	failedRun := &v1alpha1.Run{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      runName,
+			Namespace: "test",
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind: "PipelineRun",
+				Name: prName,
+			}},
+			Labels: map[string]string{
+				pipeline.GroupName + pipeline.PipelineLabelKey:     "test-pipeline",
+				pipeline.GroupName + pipeline.PipelineRunLabelKey:  prName,
+				pipeline.GroupName + pipeline.PipelineTaskLabelKey: "hello-world-1",
+			},
+			Annotations: map[string]string{},
+		},
+		Spec: v1alpha1.RunSpec{
+			Retries: expectedRetries,
+			Ref: &v1beta1.TaskRef{
+				APIVersion: "example.dev/v0",
+				Kind:       "Example",
+			},
+		},
+		Status: v1alpha1.RunStatus{
+			RunStatusFields: v1alpha1.RunStatusFields{
+				StartTime:      &metav1.Time{Time: time.Now()},
+				CompletionTime: &metav1.Time{Time: time.Now()},
+			},
+			Status: duckv1.Status{
+				Conditions: []apis.Condition{
+					{
+						Type:   apis.ConditionSucceeded,
+						Status: corev1.ConditionFalse,
+					},
+				},
+			},
+		},
+	}
+	runs := []*v1alpha1.Run{failedRun}
+	cms := []*corev1.ConfigMap{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: config.GetFeatureFlagsConfigName(), Namespace: system.Namespace()},
+			Data: map[string]string{
+				"enable-custom-tasks": "true",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: config.GetDefaultsConfigName(), Namespace: system.Namespace()},
+			Data: map[string]string{
+				"default-short-timeout-seconds": "1",
+			},
+		},
+	}
+	d := test.Data{
+		PipelineRuns: prs,
+		Pipelines:    ps,
+		ConfigMaps:   cms,
+		Runs:         runs,
+	}
+	prt := newPipelineRunTest(d, t)
+	defer prt.Cancel()
+
+	wantEvents := []string{
+		"Normal Started",
+		"Normal Running Tasks Completed: 0 \\(Failed: 0, Cancelled 0\\), Incomplete: 1, Skipped: 0",
+	}
+	_, clients := prt.reconcileRun("test", prName, wantEvents, false)
+
+	actions := clients.Pipeline.Actions()
+	if len(actions) < 2 {
+		t.Fatalf("Expected client to have at least two action implementation but it has %d", len(actions))
+	}
+
+	// The patch operation to retry the run must be executed.
+	got := []jsonpatch.Operation{}
+	for _, a := range actions {
+		if action, ok := a.(ktesting.PatchAction); ok {
+			if a.(ktesting.PatchAction).Matches("patch", "runs") {
+				err := json.Unmarshal(action.GetPatch(), &got)
+				if err != nil {
+					t.Fatalf("Expected to get a patch operation for retry,"+
+						" but got error: %v\n", err)
+				}
+				break
+			}
+		}
+	}
+	want := []jsonpatch.JsonPatchOperation{{
+		Operation: "add",
+		Path:      "/spec/status",
+		Value:     "RunRetry",
+	}}
+	if d := cmp.Diff(got, want); d != "" {
+		t.Fatalf("Expected retry patch operation, but got a mismatch %s", diff.PrintWantGot(d))
+	}
+	// After ensuring the run has been patched, let us ensure that exhaust retries happens
+	// after short timeout expires.
+	time.Sleep(1 * time.Second)
+	run, err := clients.Pipeline.TektonV1alpha1().Runs(ns).Get(prt.TestAssets.Ctx, runName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Failed to get the Run. %s, %s\n", runName, err.Error())
+	}
+	if !run.IsRetry() {
+		t.Fatalf("Expected run to have /spec/status as RunRetry, but was %s.", run.Spec.Status)
+	}
+	if len(run.Status.RetriesStatus) != expectedRetries {
+		t.Fatalf("Got unexpected retries: %d, wanted %d.", len(run.Status.RetriesStatus), expectedRetries)
+	}
+	// PipelineRun should complete with failed task
+	wantEvents = []string{
+		"Normal Started",
+		"Warning Failed Tasks Completed: 1 \\(Failed: 1, Cancelled 0\\), Skipped: 0",
+	}
+	prt.reconcileRun("test", prName, wantEvents, false)
+}
+
+func TestReconcileForCustomTaskWithRetriesSupported(t *testing.T) {
+	names.TestingSeed()
+	// TestReconcileForCustomTaskWithRetriesSupported is
+	// same as TestReconcileForCustomTaskWithRetriesNotSupported runs "Reconcile" on a PipelineRun.
+	// Except step 5, is as follows:
+	// 5. If the custom task, *does support* a retry i.e. it does clear it's 'spec.status',
+	// 	on each retry. Verify correct number of retries were performed.
+
+	ns := "test"
+	expectedRetries := 5
+	ps := []*v1beta1.Pipeline{tb.Pipeline("test-pipeline", tb.PipelineNamespace(ns),
+		tb.PipelineSpec(tb.PipelineTask("hello-world-2", "hello-world", tb.Retries(expectedRetries)))),
+	}
+	prName := "test-pipeline-run-custom-task-with-retry2"
+	prs := []*v1beta1.PipelineRun{tb.PipelineRun(prName,
+		tb.PipelineRunNamespace("test"),
+		tb.PipelineRunSpec("test-pipeline",
+			tb.PipelineRunServiceAccountName("test-sa"),
+		),
+	)}
+	ps[0].Spec.Tasks[0].TaskRef = &v1beta1.TaskRef{APIVersion: "example.dev/v0", Kind: "Example"}
+	runName := "test-pipeline-run-custom-task-with-retry-hw-1"
+	failedRun := &v1alpha1.Run{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      runName,
+			Namespace: "test",
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind: "PipelineRun",
+				Name: prName,
+			}},
+			Labels: map[string]string{
+				pipeline.GroupName + pipeline.PipelineLabelKey:     "test-pipeline",
+				pipeline.GroupName + pipeline.PipelineRunLabelKey:  prName,
+				pipeline.GroupName + pipeline.PipelineTaskLabelKey: "hello-world-2",
+			},
+			Annotations: map[string]string{},
+		},
+		Spec: v1alpha1.RunSpec{
+			Retries: expectedRetries,
+			Ref: &v1beta1.TaskRef{
+				APIVersion: "example.dev/v0",
+				Kind:       "Example",
+			},
+		},
+		Status: v1alpha1.RunStatus{
+			RunStatusFields: v1alpha1.RunStatusFields{
+				StartTime:      &metav1.Time{Time: time.Now()},
+				CompletionTime: &metav1.Time{Time: time.Now()},
+			},
+			Status: duckv1.Status{
+				Conditions: []apis.Condition{
+					{
+						Type:   apis.ConditionSucceeded,
+						Status: corev1.ConditionFalse,
+					},
+				},
+			},
+		},
+	}
+	runs := []*v1alpha1.Run{failedRun}
+	cms := []*corev1.ConfigMap{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: config.GetFeatureFlagsConfigName(), Namespace: system.Namespace()},
+			Data: map[string]string{
+				"enable-custom-tasks": "true",
+			},
+		},
+	}
+	d := test.Data{
+		PipelineRuns: prs,
+		Pipelines:    ps,
+		ConfigMaps:   cms,
+		Runs:         runs,
+	}
+	prt := newPipelineRunTest(d, t)
+	defer prt.Cancel()
+
+	wantEvents := []string{
+		"Normal Started",
+		"Normal Running Tasks Completed: 0 \\(Failed: 0, Cancelled 0\\), Incomplete: 1, Skipped: 0",
+	}
+	pr, clients := prt.reconcileRun("test", prName, wantEvents, false)
+
+	// Let us loop through retry attempts,
+	// clearing RunRetry status on each attempt.
+
+	for i := 1; i <= expectedRetries; i++ {
+		run, err := clients.Pipeline.TektonV1alpha1().Runs(ns).Get(prt.TestAssets.Ctx, runName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("Failed to get the Run %s, %s\n", runName, err.Error())
+		}
+		if !run.IsRetry() {
+			t.Fatalf("Expected run to have /spec/status as RunRetry, but was %s.", run.Spec.Status)
+		}
+		t.Logf("Iteration: %d,retriesDone: %d\n", i, len(run.Status.RetriesStatus))
+		if pr.IsDone() && len(run.Status.RetriesStatus) != expectedRetries {
+			t.Fatalf("PipelineRun was expected to be running but found to be completed.")
+		}
+		run.Status.CompletionTime = &metav1.Time{Time: time.Now()}
+		run.Spec.Status = ""
+		if run, err = clients.Pipeline.TektonV1alpha1().Runs(ns).UpdateStatus(prt.TestAssets.Ctx, run, metav1.UpdateOptions{}); err != nil {
+			t.Fatalf("update status failed for run, %s, %s", runName, err.Error())
+		}
+		if len(run.Status.RetriesStatus) != i {
+			t.Fatalf("Got unexpected retries: %d, wanted %d.", len(run.Status.RetriesStatus), i)
+		}
+		pr, _ = prt.reconcileRun("test", prName, []string{}, false)
+	}
+	if !pr.IsDone() {
+		t.Fatalf("PipelineRun was expected to be completed.")
 	}
 }
 

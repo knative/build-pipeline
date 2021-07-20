@@ -36,17 +36,19 @@ func TestNewDefaultsFromConfigMap(t *testing.T) {
 	testCases := []testCase{
 		{
 			expectedConfig: &config.Defaults{
-				DefaultTimeoutMinutes:      50,
-				DefaultServiceAccount:      "tekton",
-				DefaultManagedByLabelValue: "something-else",
+				DefaultShortTimeoutSecondsValue: 30,
+				DefaultTimeoutMinutes:           50,
+				DefaultServiceAccount:           "tekton",
+				DefaultManagedByLabelValue:      "something-else",
 			},
 			fileName: config.GetDefaultsConfigName(),
 		},
 		{
 			expectedConfig: &config.Defaults{
-				DefaultTimeoutMinutes:      50,
-				DefaultServiceAccount:      "tekton",
-				DefaultManagedByLabelValue: config.DefaultManagedByLabelValue,
+				DefaultShortTimeoutSecondsValue: 30,
+				DefaultTimeoutMinutes:           50,
+				DefaultServiceAccount:           "tekton",
+				DefaultManagedByLabelValue:      config.DefaultManagedByLabelValue,
 				DefaultPodTemplate: &pod.Template{
 					NodeSelector: map[string]string{
 						"label": "value",
@@ -79,9 +81,10 @@ func TestNewDefaultsFromConfigMap(t *testing.T) {
 func TestNewDefaultsFromEmptyConfigMap(t *testing.T) {
 	DefaultsConfigEmptyName := "config-defaults-empty"
 	expectedConfig := &config.Defaults{
-		DefaultTimeoutMinutes:      60,
-		DefaultManagedByLabelValue: "tekton-pipelines",
-		DefaultServiceAccount:      "default",
+		DefaultShortTimeoutSecondsValue: 30,
+		DefaultTimeoutMinutes:           60,
+		DefaultManagedByLabelValue:      "tekton-pipelines",
+		DefaultServiceAccount:           "default",
 	}
 	verifyConfigFileWithExpectedConfig(t, DefaultsConfigEmptyName, expectedConfig)
 }
@@ -118,6 +121,16 @@ func TestEquals(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "different default short timeout",
+			left: &config.Defaults{
+				DefaultShortTimeoutSecondsValue: 10,
+			},
+			right: &config.Defaults{
+				DefaultShortTimeoutSecondsValue: 20,
+			},
+			expected: false,
+		},
+		{
 			name: "different default timeout",
 			left: &config.Defaults{
 				DefaultTimeoutMinutes: 10,
@@ -134,6 +147,16 @@ func TestEquals(t *testing.T) {
 			},
 			right: &config.Defaults{
 				DefaultTimeoutMinutes: 20,
+			},
+			expected: true,
+		},
+		{
+			name: "same default short timeout",
+			left: &config.Defaults{
+				DefaultShortTimeoutSecondsValue: 20,
+			},
+			right: &config.Defaults{
+				DefaultShortTimeoutSecondsValue: 20,
 			},
 			expected: true,
 		},
