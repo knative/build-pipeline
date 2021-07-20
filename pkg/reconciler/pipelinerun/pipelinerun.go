@@ -493,10 +493,11 @@ func (c *Reconciler) reconcile(ctx context.Context, pr *v1beta1.PipelineRun, get
 	// Build PipelineRunFacts with a list of resolved pipeline tasks,
 	// dag tasks graph and final tasks graph
 	pipelineRunFacts := &resources.PipelineRunFacts{
-		State:           pipelineRunState,
-		SpecStatus:      pr.Spec.Status,
-		TasksGraph:      d,
-		FinalTasksGraph: dfinally,
+		State:                      pipelineRunState,
+		SpecStatus:                 pr.Spec.Status,
+		TasksGraph:                 d,
+		FinalTasksGraph:            dfinally,
+		ScopeWhenExpressionsToTask: config.FromContextOrDefaults(ctx).FeatureFlags.ScopeWhenExpressionsToTask,
 	}
 
 	for _, rprt := range pipelineRunFacts.State {
@@ -647,7 +648,7 @@ func (c *Reconciler) runNextSchedulableTask(ctx context.Context, pr *v1beta1.Pip
 	}
 
 	for _, rprt := range nextRprts {
-		if rprt == nil || rprt.Skip(pipelineRunFacts) || rprt.IsFinallySkipped(pipelineRunFacts) {
+		if rprt == nil || rprt.Skip(pipelineRunFacts).IsSkipped || rprt.IsFinallySkipped(pipelineRunFacts).IsSkipped {
 			continue
 		}
 		if rprt.ResolvedConditionChecks == nil || rprt.ResolvedConditionChecks.IsSuccess() {

@@ -38,6 +38,7 @@ func TestNewFeatureFlagsFromConfigMap(t *testing.T) {
 				DisableHomeEnvOverwrite:          false,
 				DisableWorkingDirOverwrite:       false,
 				RunningInEnvWithInjectedSidecars: config.DefaultRunningInEnvWithInjectedSidecars,
+				ScopeWhenExpressionsToTask:       config.DefaultScopeWhenExpressionsToTask,
 				EnableAPIFields:                  "stable",
 			},
 			fileName: config.GetFeatureFlagsConfigName(),
@@ -51,6 +52,7 @@ func TestNewFeatureFlagsFromConfigMap(t *testing.T) {
 				RequireGitSSHSecretKnownHosts:    true,
 				EnableTektonOCIBundles:           true,
 				EnableCustomTasks:                true,
+				ScopeWhenExpressionsToTask:       true,
 				EnableAPIFields:                  "alpha",
 			},
 			fileName: "feature-flags-all-flags-set",
@@ -66,6 +68,7 @@ func TestNewFeatureFlagsFromConfigMap(t *testing.T) {
 				DisableHomeEnvOverwrite:          true,
 				DisableWorkingDirOverwrite:       true,
 				RunningInEnvWithInjectedSidecars: config.DefaultRunningInEnvWithInjectedSidecars,
+				ScopeWhenExpressionsToTask:       config.DefaultScopeWhenExpressionsToTask,
 			},
 			fileName: "feature-flags-enable-api-fields-overrides-bundles-and-custom-tasks",
 		},
@@ -78,6 +81,7 @@ func TestNewFeatureFlagsFromConfigMap(t *testing.T) {
 				DisableHomeEnvOverwrite:          true,
 				DisableWorkingDirOverwrite:       true,
 				RunningInEnvWithInjectedSidecars: config.DefaultRunningInEnvWithInjectedSidecars,
+				ScopeWhenExpressionsToTask:       config.DefaultScopeWhenExpressionsToTask,
 			},
 			fileName: "feature-flags-bundles-and-custom-tasks",
 		},
@@ -98,6 +102,7 @@ func TestNewFeatureFlagsFromEmptyConfigMap(t *testing.T) {
 		DisableHomeEnvOverwrite:          true,
 		DisableWorkingDirOverwrite:       true,
 		RunningInEnvWithInjectedSidecars: true,
+		ScopeWhenExpressionsToTask:       config.DefaultScopeWhenExpressionsToTask,
 		EnableAPIFields:                  "stable",
 	}
 	verifyConfigFileWithExpectedFeatureFlagsConfig(t, FeatureFlagsConfigEmptyName, expectedConfig)
@@ -141,6 +146,8 @@ func TestNewFeatureFlagsConfigMapErrors(t *testing.T) {
 		fileName: "feature-flags-invalid-boolean",
 	}, {
 		fileName: "feature-flags-invalid-enable-api-fields",
+	}, {
+		fileName: "feature-flags-invalid-scope-when-expressions-to-task",
 	}} {
 		t.Run(tc.fileName, func(t *testing.T) {
 			cm := test.ConfigMapFromTestFile(t, tc.fileName)

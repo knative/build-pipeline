@@ -41,7 +41,10 @@ const (
 // state of the PipelineRun.
 type PipelineRunState []*ResolvedPipelineRunTask
 
-// PipelineRunFacts is a collection of list of ResolvedPipelineTask, graph of DAG tasks, and graph of finally tasks
+// PipelineRunFacts holds the state of all the components that make up the Pipeline graph that are used to track the
+// PipelineRun state without passing all these components separately. It helps simplify our implementation for getting
+// and scheduling the next tasks. It is a collection of list of ResolvedPipelineTask, graph of DAG tasks, graph of
+// finally tasks, cache of skipped tasks, and the scope of when expressions.
 type PipelineRunFacts struct {
 	State           PipelineRunState
 	SpecStatus      v1beta1.PipelineRunSpecStatus
@@ -56,7 +59,8 @@ type PipelineRunFacts struct {
 	// needed, via the `Skip` method in pipelinerunresolution.go
 	// The skip data is sensitive to changes in the state. The ResetSkippedCache method
 	// can be used to clean the cache and force re-computation when needed.
-	SkipCache map[string]bool
+	SkipCache                  map[string]TaskSkipStatus
+	ScopeWhenExpressionsToTask bool
 }
 
 // pipelineRunStatusCount holds the count of successful, failed, cancelled, skipped, and incomplete tasks
@@ -75,7 +79,7 @@ type pipelineRunStatusCount struct {
 
 // ResetSkippedCache resets the skipped cache in the facts map
 func (facts *PipelineRunFacts) ResetSkippedCache() {
-	facts.SkipCache = make(map[string]bool)
+	facts.SkipCache = make(map[string]TaskSkipStatus)
 }
 
 // ToMap returns a map that maps pipeline task name to the resolved pipeline run task
@@ -406,14 +410,14 @@ func (facts *PipelineRunFacts) GetPipelineConditionStatus(pr *v1beta1.PipelineRu
 func (facts *PipelineRunFacts) GetSkippedTasks() []v1beta1.SkippedTask {
 	var skipped []v1beta1.SkippedTask
 	for _, rprt := range facts.State {
-		if rprt.Skip(facts) {
+		if rprt.Skip(facts).IsSkipped {
 			skippedTask := v1beta1.SkippedTask{
 				Name:            rprt.PipelineTask.Name,
 				WhenExpressions: rprt.PipelineTask.WhenExpressions,
 			}
 			skipped = append(skipped, skippedTask)
 		}
-		if rprt.IsFinallySkipped(facts) {
+		if rprt.IsFinallySkipped(facts).IsSkipped {
 			skippedTask := v1beta1.SkippedTask{
 				Name: rprt.PipelineTask.Name,
 			}
@@ -465,7 +469,7 @@ func (facts *PipelineRunFacts) GetPipelineTaskStatus() map[string]string {
 				}
 				// if any of the dag task skipped, change the aggregate status to completed
 				// but continue checking for any other failure
-				if t.Skip(facts) {
+				if t.Skip(facts).IsSkipped {
 					aggregateStatus = v1beta1.PipelineRunReasonCompleted.String()
 				}
 			}
@@ -481,7 +485,7 @@ func (facts *PipelineRunFacts) successfulOrSkippedDAGTasks() []string {
 	tasks := []string{}
 	for _, t := range facts.State {
 		if facts.isDAGTask(t.PipelineTask.Name) {
-			if t.IsSuccessful() || t.Skip(facts) {
+			if t.IsSuccessful() || t.Skip(facts).IsSkipped {
 				tasks = append(tasks, t.PipelineTask.Name)
 			}
 		}
@@ -533,10 +537,10 @@ func (facts *PipelineRunFacts) getPipelineTasksCount() pipelineRunStatusCount {
 		case t.IsFailure():
 			s.Failed++
 		// increment skip counter since the task is skipped
-		case t.Skip(facts):
+		case t.Skip(facts).IsSkipped:
 			s.Skipped++
 		// checking if any finally tasks were referring to invalid/missing task results
-		case t.IsFinallySkipped(facts):
+		case t.IsFinallySkipped(facts).IsSkipped:
 			s.Skipped++
 		// increment incomplete counter since the task is pending and not executed yet
 		default:

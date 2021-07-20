@@ -465,6 +465,141 @@ There are a lot of scenarios where `WhenExpressions` can be really useful. Some 
 - Checking if the name of a CI job matches
 - Checking if an optional Workspace has been provided
 
+#### Guarding a `Task` and its dependent `Tasks`
+
+When  `when` expressions evaluate to `False`, the `Task` and its dependent `Tasks` will be skipped by default while the 
+rest of the `Pipeline` will execute. Dependencies between `Tasks` can be either ordering ([`runAfter`](https://github.com/tektoncd/pipeline/blob/main/docs/pipelines.md#using-the-runafter-parameter))
+or resource (e.g. [`Results`](https://github.com/tektoncd/pipeline/blob/main/docs/pipelines.md#using-results)) 
+dependencies, as further described in [configuring execution order](#configuring-the-task-execution-order). The global 
+default scope of `when` expressions is set to a `Task` and its dependent`Tasks`; `scope-when-expressions-to-task` field 
+in [`config/config-feature-flags.yaml`](install.md#customizing-the-pipelines-controller-behavior) defaults to "false".
+
+**Note:** Scoping `when` expressions to a `Task` and its dependent `Tasks` is deprecated. To guard a `Task` and its 
+dependent `Tasks`, cascade `when` expressions to the specific dependent `Tasks` to be guarded as well.
+
+```
+                                     tests
+                                       |
+                                       v
+                                 manual-approval
+                                 |            |
+                                 v        (approver)
+                            build-image       |
+                                |             v
+                                v          slack-msg
+                            deploy-image
+```
+
+Taking the use case above, a user who wants to guard `manual-approval` and its dependent `Tasks` can design the 
+`Pipeline` as such:
+
+```yaml
+tasks:
+...
+- name: manual-approval
+  runAfter:
+    - integration-tests
+  when:
+    - input: $(params.git-action)
+      operator: in
+      values:
+        - merge
+  taskRef:
+    name: manual-approval
+
+- name: slack-msg
+  when:
+    - input: $(params.git-action)
+      operator: in
+      values:
+        - merge
+  params:
+    - name: approver
+      value: $(tasks.manual-approval.results.approver)
+  taskRef:
+    name: slack-msg
+
+- name: build-image
+  when:
+    - input: $(params.git-action)
+      operator: in
+      values:
+        - merge
+  runAfter:
+    - manual-approval
+  taskRef:
+    name: build-image
+
+- name: deploy-image
+  when:
+    - input: $(params.git-action)
+      operator: in
+      values:
+        - merge
+  runAfter:
+    - build-image
+  taskRef:
+    name: deploy-image
+```  
+
+#### Guarding a `Task` only
+
+To guard a `Task` only and unblock execution of its dependent `Tasks`, set the global default scope of `when` expressions
+to `Task` using the `scope-when-expressions-to-task` field in [`config/config-feature-flags.yaml`](install.md#customizing-the-pipelines-controller-behavior)
+by changing it to "true".
+
+```
+                                     tests
+                                       |
+                                       v
+                                 manual-approval
+                                 |            |
+                                 v        (approver)
+                            build-image       |
+                                |             v
+                                v          slack-msg
+                            deploy-image
+```
+
+Taking the use case above, a user who wants to guard `manual-approval` only can design the `Pipeline` as such:
+
+```yaml
+tasks:
+...
+- name: manual-approval
+  runAfter:
+    - tests
+  when:
+    - input: $(params.git-action)
+      operator: in
+      values:
+        - merge
+  taskRef:
+    name: manual-approval
+
+- name: slack-msg
+  params:
+    - name: approver
+      value: $(tasks.manual-approval.results.approver)
+  taskRef:
+    name: slack-msg
+
+- name: build-image
+  runAfter:
+    - manual-approval
+  taskRef:
+    name: build-image
+
+- name: deploy-image
+  runAfter:
+    - build-image
+  taskRef:
+    name: deploy-image
+```
+
+With `when` expressions scoped to `Task`, if `manual-approval` is skipped, it's dependent `Tasks` (`slack-msg`, 
+`build-image` and `deploy-image`) would be executed regardless.
+
 ### Guard `Task` execution using `Conditions`
 
 **Note:** `Conditions` are [deprecated](./deprecations.md), use [`WhenExpressions`](#guard-task-execution-using-whenexpressions) instead.
@@ -691,10 +826,13 @@ so that one will run before another and the execution of the `Pipeline` progress
 without getting stuck in an infinite loop.
 
 This is done using:
-
-- [`from`](#using-the-from-parameter) clauses on the [`PipelineResources`](resources.md) used by each `Task`
-- [`runAfter`](#using-the-runafter-parameter) clauses on the corresponding `Tasks`
-- By linking the [`results`](#configuring-execution-results-at-the-pipeline-level) of one `Task` to the params of another
+- _resource dependencies_:
+  - [`from`](#using-the-from-parameter) clauses on the [`PipelineResources`](resources.md) used by each `Task`
+  - [`results`](#configuring-execution-results-at-the-pipeline-level) of one `Task` being pa `params` or
+    `when` expressions of another
+    
+- _ordering dependencies_:
+  - [`runAfter`](#using-the-runafter-parameter) clauses on the corresponding `Tasks`
 
 For example, the `Pipeline` defined as follows
 

@@ -1,4 +1,4 @@
-# Copyright 2020 The Tekton Authors
+# Copyright 2021 The Tekton Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,12 +18,4 @@ metadata:
   name: feature-flags
   namespace: tekton-pipelines
 data:
-  disable-home-env-overwrite: "true"
-  disable-working-directory-overwrite: "true"
-  disable-affinity-assistant: "true"
-  running-in-environment-with-injected-sidecars: "false"
-  require-git-ssh-secret-known-hosts: "true"
-  enable-tekton-oci-bundles: "true"
-  enable-custom-tasks: "true"
-  scope-when-expressions-to-task: "true"
-  enable-api-fields: "alpha"
+  scope-when-expressions-to-task: "im-not-a-boolean"

@@ -39,6 +39,24 @@ const (
 	ReasonConditionCheckFailed = "ConditionCheckFailed"
 )
 
+type SkippingReason string
+
+const (
+	WhenExpressionsSkip         SkippingReason = "WhenExpressionsSkip"
+	ConditionsSkip              SkippingReason = "ConditionsSkip"
+	ParentTasksSkip             SkippingReason = "ParentTasksSkip"
+	IsStoppingSkip              SkippingReason = "IsStoppingSkip"
+	IsGracefullyCancelledSkip   SkippingReason = "IsGracefullyCancelledSkip"
+	IsGracefullyStoppedSkip     SkippingReason = "IsGracefullyStoppedSkip"
+	MissingResultsReferenceSkip SkippingReason = "MissingResultsReferenceSkip"
+	None                        SkippingReason = "None"
+)
+
+type TaskSkipStatus struct {
+	IsSkipped      bool
+	SkippingReason SkippingReason
+}
+
 // TaskNotFoundError indicates that the resolution failed because a referenced Task couldn't be retrieved
 type TaskNotFoundError struct {
 	Name string
@@ -76,7 +94,7 @@ type ResolvedPipelineRunTask struct {
 
 // IsDone returns true only if the task is skipped, succeeded or failed
 func (t ResolvedPipelineRunTask) IsDone(facts *PipelineRunFacts) bool {
-	return t.Skip(facts) || t.IsSuccessful() || t.IsFailure()
+	return t.Skip(facts).IsSkipped || t.IsSuccessful() || t.IsFailure()
 }
 
 // IsRunning returns true only if the task is neither succeeded, cancelled nor failed
@@ -172,17 +190,34 @@ func (t *ResolvedPipelineRunTask) checkParentsDone(facts *PipelineRunFacts) bool
 	return true
 }
 
-func (t *ResolvedPipelineRunTask) skip(facts *PipelineRunFacts) bool {
-	if facts.isFinalTask(t.PipelineTask.Name) || t.IsStarted() {
-		return false
+func (t *ResolvedPipelineRunTask) skip(facts *PipelineRunFacts) TaskSkipStatus {
+	var skippingReason SkippingReason
+
+	switch {
+	case facts.isFinalTask(t.PipelineTask.Name) || t.IsStarted():
+		skippingReason = None
+	case facts.IsStopping():
+		skippingReason = IsStoppingSkip
+	case facts.IsGracefullyCancelled():
+		skippingReason = IsGracefullyCancelledSkip
+	case facts.IsGracefullyStopped():
+		skippingReason = IsGracefullyStoppedSkip
+	case t.skipBecauseParentTaskWasSkipped(facts):
+		skippingReason = ParentTasksSkip
+	case t.skipBecauseWhenExpressionsEvaluatedToFalse(facts):
+		skippingReason = WhenExpressionsSkip
+	case t.skipBecauseResultReferencesAreMissing(facts):
+		skippingReason = MissingResultsReferenceSkip
+	case t.skipBecauseConditionsFailed():
+		skippingReason = ConditionsSkip
+	default:
+		skippingReason = None
 	}
 
-	if t.conditionsSkip() || t.whenExpressionsSkip(facts) || t.parentTasksSkip(facts) ||
-		facts.IsStopping() || facts.IsGracefullyCancelled() || facts.IsGracefullyStopped() {
-		return true
+	return TaskSkipStatus{
+		IsSkipped:      skippingReason != None,
+		SkippingReason: skippingReason,
 	}
-
-	return false
 }
 
 // Skip returns true if a PipelineTask will not be run because
@@ -190,10 +225,11 @@ func (t *ResolvedPipelineRunTask) skip(facts *PipelineRunFacts) bool {
 // (2) its Condition Checks failed
 // (3) its parent task was skipped
 // (4) Pipeline is in stopping state (one of the PipelineTasks failed)
+// (5) Pipeline is gracefully cancelled or stopped
 // Note that this means Skip returns false if a conditionCheck is in progress
-func (t *ResolvedPipelineRunTask) Skip(facts *PipelineRunFacts) bool {
+func (t *ResolvedPipelineRunTask) Skip(facts *PipelineRunFacts) TaskSkipStatus {
 	if facts.SkipCache == nil {
-		facts.SkipCache = make(map[string]bool)
+		facts.SkipCache = make(map[string]TaskSkipStatus)
 	}
 	if _, cached := facts.SkipCache[t.PipelineTask.Name]; !cached {
 		facts.SkipCache[t.PipelineTask.Name] = t.skip(facts) // t.skip() is same as our existing t.Skip()
@@ -201,7 +237,9 @@ func (t *ResolvedPipelineRunTask) Skip(facts *PipelineRunFacts) bool {
 	return facts.SkipCache[t.PipelineTask.Name]
 }
 
-func (t *ResolvedPipelineRunTask) conditionsSkip() bool {
+// skipBecauseConditionsFailed checks that the task has Conditions which have completed evaluating
+// it returns true if any of the Conditions fails
+func (t *ResolvedPipelineRunTask) skipBecauseConditionsFailed() bool {
 	if len(t.ResolvedConditionChecks) > 0 {
 		if t.ResolvedConditionChecks.IsDone() && !t.ResolvedConditionChecks.IsSuccess() {
 			return true
@@ -210,7 +248,9 @@ func (t *ResolvedPipelineRunTask) conditionsSkip() bool {
 	return false
 }
 
-func (t *ResolvedPipelineRunTask) whenExpressionsSkip(facts *PipelineRunFacts) bool {
+// skipBecauseWhenExpressionsEvaluatedToFalse confirms that the when expressions have completed evaluating, and
+// it returns true if any of the when expressions evaluate to false
+func (t *ResolvedPipelineRunTask) skipBecauseWhenExpressionsEvaluatedToFalse(facts *PipelineRunFacts) bool {
 	if t.checkParentsDone(facts) {
 		if len(t.PipelineTask.WhenExpressions) > 0 {
 			if !t.PipelineTask.WhenExpressions.HaveVariables() {
@@ -223,11 +263,33 @@ func (t *ResolvedPipelineRunTask) whenExpressionsSkip(facts *PipelineRunFacts) b
 	return false
 }
 
-func (t *ResolvedPipelineRunTask) parentTasksSkip(facts *PipelineRunFacts) bool {
+// skipBecauseParentTaskWasSkipped loops through the parent tasks and checks if the parent task skipped:
+//    if yes, is it because of when expressions and are when expressions?
+//        if yes, it ignores this parent skip and continue evaluating other parent tasks
+//        if no, it returns true to skip the current task because this parent task was skipped
+//    if no, it continues checking the other parent tasks
+func (t *ResolvedPipelineRunTask) skipBecauseParentTaskWasSkipped(facts *PipelineRunFacts) bool {
 	stateMap := facts.State.ToMap()
 	node := facts.TasksGraph.Nodes[t.PipelineTask.Name]
 	for _, p := range node.Prev {
-		if stateMap[p.Task.HashKey()].Skip(facts) {
+		parentTask := stateMap[p.Task.HashKey()]
+		if parentSkipStatus := parentTask.Skip(facts); parentSkipStatus.IsSkipped {
+			// if the `when` expressions are scoped to task and the parent task was skipped due to its `when` expressions,
+			// then we should ignore that and continue evaluating if we should skip because of other parent tasks
+			if parentSkipStatus.SkippingReason == WhenExpressionsSkip && facts.ScopeWhenExpressionsToTask {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// skipBecauseResultReferencesAreMissing checks if the task references results that cannot be resolved, which is a
+// reason for skipping the task
+func (t *ResolvedPipelineRunTask) skipBecauseResultReferencesAreMissing(facts *PipelineRunFacts) bool {
+	if t.checkParentsDone(facts) {
+		if _, err := ResolveResultRef(facts.State, t); err != nil {
 			return true
 		}
 	}
@@ -240,19 +302,30 @@ func (t *ResolvedPipelineRunTask) IsFinalTask(facts *PipelineRunFacts) bool {
 }
 
 // IsFinallySkipped returns true if a finally task is not executed and skipped due to task result validation failure
-func (t *ResolvedPipelineRunTask) IsFinallySkipped(facts *PipelineRunFacts) bool {
-	if t.IsStarted() {
-		return false
-	}
-	if facts.checkDAGTasksDone() && facts.isFinalTask(t.PipelineTask.Name) {
-		if _, err := ResolveResultRef(facts.State, t); err != nil {
-			return true
+func (t *ResolvedPipelineRunTask) IsFinallySkipped(facts *PipelineRunFacts) TaskSkipStatus {
+	var skippingReason SkippingReason
+
+	switch {
+	case t.IsStarted():
+		skippingReason = None
+	case facts.checkDAGTasksDone() && facts.isFinalTask(t.PipelineTask.Name):
+		switch {
+		case t.skipBecauseResultReferencesAreMissing(facts):
+			skippingReason = MissingResultsReferenceSkip
+		case t.skipBecauseWhenExpressionsEvaluatedToFalse(facts):
+			skippingReason = WhenExpressionsSkip
+		default:
+			skippingReason = None
 		}
-		if t.whenExpressionsSkip(facts) {
-			return true
-		}
+	default:
+		skippingReason = None
 	}
-	return false
+
+	return TaskSkipStatus{
+		IsSkipped:      skippingReason != None,
+		SkippingReason: skippingReason,
+	}
+
 }
 
 // GetRun is a function that will retrieve a Run by name.
