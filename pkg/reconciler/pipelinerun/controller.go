@@ -22,6 +22,7 @@ import (
 
 	"github.com/tektoncd/pipeline/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
+	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	pipelineclient "github.com/tektoncd/pipeline/pkg/client/injection/client"
 	conditioninformer "github.com/tektoncd/pipeline/pkg/client/injection/informers/pipeline/v1alpha1/condition"
 	runinformer "github.com/tektoncd/pipeline/pkg/client/injection/informers/pipeline/v1alpha1/run"
@@ -96,10 +97,13 @@ func NewController(namespace string, images pipeline.Images) func(context.Contex
 		}
 
 		logger.Info("Setting up event handlers")
-		pipelineRunInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-			AddFunc:    impl.Enqueue,
-			UpdateFunc: controller.PassNew(impl.Enqueue),
-			DeleteFunc: impl.Enqueue,
+		pipelineRunInformer.Informer().AddEventHandler(cache.FilteringResourceEventHandler{
+			FilterFunc: ignorePipelineRunsWithEmptyStatusSpec,
+			Handler: cache.ResourceEventHandlerFuncs{
+				AddFunc:    impl.Enqueue,
+				UpdateFunc: controller.PassNew(impl.Enqueue),
+				DeleteFunc: impl.Enqueue,
+			},
 		})
 
 		c.tracker = tracker.New(impl.EnqueueKey, 30*time.Minute)
@@ -114,4 +118,11 @@ func NewController(namespace string, images pipeline.Images) func(context.Contex
 
 		return impl
 	}
+}
+
+// ignorePipelineRunsWithEmptyStatusSpec limits PipelineRun reconciles to only
+// those PipelineRuns with a populated status.pipelineSpec field.
+func ignorePipelineRunsWithEmptyStatusSpec(obj interface{}) bool {
+	pr, ok := obj.(*v1beta1.PipelineRun)
+	return ok && pr.Status.PipelineSpec != nil
 }
